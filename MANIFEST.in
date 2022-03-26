@@ -1,0 +1,5 @@
+prune demo
+prune pertnet-cli
+include README.md
+include requirements.txt
+include LICENSE

@@ -1,56 +1,99 @@
 import torch
 import numpy as np
 import scanpy as sc
+import utils
 
 from sklearn.metrics import r2_score
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_squared_error as mse
 from sklearn.metrics import mean_absolute_error as mae
 
-def evaluate(loader, model, uncertainty, device):
+def evaluate(loader, model, args, num_de_idx=20):
     """
     Run model in inference mode using a given data loader
     """
 
     model.eval()
-    model.to(device)
     pert_cat = []
     pred = []
     truth = []
     pred_de = []
     truth_de = []
     results = {}
+    func_readouts = []
+    y_funcs = []
+
+    if args['more_samples']>=1:
+        adata = sc.read_h5ad(args['data_path'])
+        ctrl_adata = adata[adata.obs['condition']=='ctrl']
 
     for itr, batch in enumerate(loader):
 
-        batch.to(device)
+        batch.to(args['device'])
+        model.to(args['device'])
         pert_cat.extend(batch.pert)
 
         with torch.no_grad():
-            if uncertainty:
-                p, logvar = model(batch)
+            if args['uncertainty']:
+                p, logvar, p_func = model(batch)
             else:
-                p = model(batch)
+                p, p_func = model(batch)
             t = batch.y
-            pred.extend(p.cpu())
-            truth.extend(t.cpu())
+
+            if args['more_samples']>=1:
+                # This will sample more controls
+                x = torch.stack(torch.split(batch.x[:,0], args['num_genes']))
+                p_delta = p - x
+                sample_controls_ = ctrl_adata.chunk_X(args['more_samples'])
+                sample_controls = np.tile(sample_controls_,(p.shape[0],1))
+                p_delta = p_delta.detach().cpu().numpy()
+                p_delta = np.repeat(p_delta, args['more_samples'], 0)
+                new_p = sample_controls + p_delta
+                pred.extend(new_p)
+                t_numpy = t.detach().cpu().numpy()
+                truth.extend(np.repeat(t_numpy, args['more_samples'], 0))
+
+            else:
+                pred.extend(p.cpu())
+                truth.extend(t.cpu())
+
+            if args['func_readout']:
+                func_readouts.extend(p_func.cpu())
+                y_funcs.extend(batch.func_readout.cpu())
 
             # Differentially expressed genes
             for itr, de_idx in enumerate(batch.de_idx):
-                pred_de.append(p[itr, de_idx])
-                truth_de.append(t[itr, de_idx])
+                if de_idx is not None:
+                    pred_de.append(p[itr, de_idx])
+                    truth_de.append(t[itr, de_idx])
+
+                else:
+                    pred_de.append([torch.zeros(num_de_idx).to(args['device'])])
+                    truth_de.append([torch.zeros(num_de_idx).to(args['device'])])
 
     # all genes
     results['pert_cat'] = np.array(pert_cat)
-    pred = torch.stack(pred)
-    truth = torch.stack(truth)
-    results['pred']= pred.detach().cpu().numpy()
-    results['truth']= truth.detach().cpu().numpy()
+
+    if args['more_samples'] >= 1:
+        results['pred']= np.stack(pred)
+        results['truth']= np.stack(truth)
+
+    else:
+        pred = torch.stack(pred)
+        truth = torch.stack(truth)
+        results['pred']= pred.detach().cpu().numpy()
+        results['truth']= truth.detach().cpu().numpy()
 
     pred_de = torch.stack(pred_de)
     truth_de = torch.stack(truth_de)
     results['pred_de']= pred_de.detach().cpu().numpy()
     results['truth_de']= truth_de.detach().cpu().numpy()
+
+    if args['func_readout']:
+        func_readouts = torch.stack(func_readouts)
+        y_funcs = torch.stack(y_funcs)
+        results['func_readout'] = func_readouts.detach().cpu().numpy()
+        results['y_funcs'] = y_funcs.detach().cpu().numpy()
 
     return results
 
@@ -65,8 +108,28 @@ def compute_metrics(results, gene_idx=None):
 
     metric2fct = {
            'mse': mse,
-           'pearson': pearsonr
+           'mae': mae,
+           'spearman': spearmanr,
+           'pearson': pearsonr,
+           'r2': r2_score
     }
+    
+    ## macro
+    '''
+    for m, fct in metric2fct.items():
+        if m in ['spearman', 'pearson']:
+            val = fct(results['pred'].reshape(-1,), results['truth'].reshape(-1,))[0]
+            val_de = fct(results['pred_de'].reshape(-1,), results['truth_de'].reshape(-1,))[0]
+            if np.isnan(val):
+                val = 0
+            if np.isnan(val_de):
+                val_de = 0
+        else:
+            val = fct(results['pred'].reshape(-1,), results['truth'].reshape(-1,))
+            val_de = fct(results['pred_de'].reshape(-1,), results['truth_de'].reshape(-1,))
+        metrics[m + '_macro'] = val
+        metrics[m + '_de_macro'] = val_de
+    '''
     
     for m in metric2fct.keys():
         metrics[m] = []
@@ -76,25 +139,32 @@ def compute_metrics(results, gene_idx=None):
 
         metrics_pert[pert] = {}
         p_idx = np.where(results['pert_cat'] == pert)[0]
-            
-        for m, fct in metric2fct.items():
-            if m == 'pearson':
-                val = fct(results['pred'][p_idx].mean(0), results['truth'][p_idx].mean(0))[0]
-                if np.isnan(val):
-                    val = 0
-            else:
-                val = fct(results['pred'][p_idx].mean(0), results['truth'][p_idx].mean(0))
-
-            metrics_pert[pert][m] = val
-            metrics[m].append(metrics_pert[pert][m])
-
-       
-        if pert != 'ctrl':
+        if gene_idx is None:
             
             for m, fct in metric2fct.items():
-                if m == 'pearson':
+                if m in ['spearman', 'pearson']:
+                    val = fct(results['pred'][p_idx].mean(0), results['truth'][p_idx].mean(0))[0]
+                    if np.isnan(val):
+                        val = 0
+                else:
+                    val = fct(results['pred'][p_idx].mean(0), results['truth'][p_idx].mean(0))
+                    
+                metrics_pert[pert][m] = val
+                metrics[m].append(metrics_pert[pert][m])
+            
+        else:
+            for m, fct in metric2fct.items():
+                metrics[m].append(0)     
+       
+        if pert != 'ctrl' and gene_idx is None:
+            
+            for m, fct in metric2fct.items():
+                if m in ['spearman', 'pearson']:
                     val = fct(results['pred_de'][p_idx].mean(0), results['truth_de'][p_idx].mean(0))[0]
                     if np.isnan(val):
+                        #print(pert)
+                        #print(results['pred_de'][p_idx].mean(0))
+                        #print(results['truth_de'][p_idx].mean(0))
                         val = 0
                 else:
                     val = fct(results['pred_de'][p_idx].mean(0), results['truth_de'][p_idx].mean(0))
@@ -110,14 +180,19 @@ def compute_metrics(results, gene_idx=None):
         
         metrics[m] = np.mean(metrics[m])
         metrics[m + '_de'] = np.mean(metrics[m + '_de'])
-    
+
+    if 'func_readout' in results.keys():
+        error = results['func_readout'] - results['y_funcs']
+        error = np.array([e for e in error if not np.isnan(e)])
+        metrics['func_mse'] = np.mean(error**2)
+
     return metrics, metrics_pert
 
 
 def compute_synergy_loss(results, mean_control, high_umi_idx, subtype = 'POTENTIATION'):
-    pred_res = get_test_set_results_seen2(results, subtype)
+    pred_res = utils.get_test_set_results_seen2(results, subtype)
     all_perts = np.unique(results['pert_cat'])
-    linear_params = get_linear_params(pred_res, high_umi_idx,
+    linear_params = utils.get_linear_params(pred_res, high_umi_idx,
                                             mean_control,all_perts)
     synergy_loss = np.sum([np.abs(linear_params[k]['pred']['mag']
                                - linear_params[k]['truth']['mag']) for k in
@@ -137,7 +212,7 @@ def non_zero_analysis(adata, test_res):
     pert_metric = {}
     
     ## in silico modeling and upperbounding
-    pert2pert_full_id = dict(adata.obs[['condition', 'condition_name']].values)
+    pert2pert_full_id = dict(adata.obs[['condition', 'cov_drug_dose_name']].values)
     geneid2name = dict(zip(adata.var.index.values, adata.var['gene_name']))
     geneid2idx = dict(zip(adata.var.index.values, range(len(adata.var.index.values))))
 
@@ -244,7 +319,7 @@ def non_dropout_analysis(adata, test_res):
     pert_metric = {}
     
     ## in silico modeling and upperbounding
-    pert2pert_full_id = dict(adata.obs[['condition', 'condition_name']].values)
+    pert2pert_full_id = dict(adata.obs[['condition', 'cov_drug_dose_name']].values)
     geneid2name = dict(zip(adata.var.index.values, adata.var['gene_name']))
     geneid2idx = dict(zip(adata.var.index.values, range(len(adata.var.index.values))))
 
@@ -367,6 +442,7 @@ def non_dropout_analysis(adata, test_res):
 def deeper_analysis(adata, test_res, de_column_prefix = 'rank_genes_groups_cov', most_variable_genes = None):
     
     metric2fct = {
+           #'spearman': spearmanr, # not meaningful
            'pearson': pearsonr,
            'mse': mse
     }
@@ -374,7 +450,7 @@ def deeper_analysis(adata, test_res, de_column_prefix = 'rank_genes_groups_cov',
     pert_metric = {}
 
     ## in silico modeling and upperbounding
-    pert2pert_full_id = dict(adata.obs[['condition', 'condition_name']].values)
+    pert2pert_full_id = dict(adata.obs[['condition', 'cov_drug_dose_name']].values)
     geneid2name = dict(zip(adata.var.index.values, adata.var['gene_name']))
     geneid2idx = dict(zip(adata.var.index.values, range(len(adata.var.index.values))))
 
@@ -398,10 +474,11 @@ def deeper_analysis(adata, test_res, de_column_prefix = 'rank_genes_groups_cov',
 
     for pert in np.unique(test_res['pert_cat']):
         pert_metric[pert] = {}
-        de_idx = [geneid2idx[i] for i in adata.uns['rank_genes_groups_cov_all'][pert2pert_full_id[pert]][:20]]
-        de_idx_200 = [geneid2idx[i] for i in adata.uns['rank_genes_groups_cov_all'][pert2pert_full_id[pert]][:200]]
-        de_idx_100 = [geneid2idx[i] for i in adata.uns['rank_genes_groups_cov_all'][pert2pert_full_id[pert]][:100]]
-        de_idx_50 = [geneid2idx[i] for i in adata.uns['rank_genes_groups_cov_all'][pert2pert_full_id[pert]][:50]]
+        #de_names = [geneid2name[i] for i in adata.uns['rank_genes_groups_cov'][pert2pert_full_id[pert]]]
+        de_idx = [geneid2idx[i] for i in adata.uns[de_column_prefix][pert2pert_full_id[pert]]]
+        de_idx_200 = [geneid2idx[i] for i in adata.uns[de_column_prefix + '_top200'][pert2pert_full_id[pert]]]
+        de_idx_100 = [geneid2idx[i] for i in adata.uns[de_column_prefix + '_top100'][pert2pert_full_id[pert]]]
+        de_idx_50 = [geneid2idx[i] for i in adata.uns[de_column_prefix + '_top50'][pert2pert_full_id[pert]]]
 
         pert_idx = np.where(test_res['pert_cat'] == pert)[0]    
         pred_mean = np.mean(test_res['pred_de'][pert_idx], axis = 0).reshape(-1,)
@@ -664,126 +741,6 @@ def batch_predict(loader, loaded_models, args):
 
     preds = np.vstack(preds)
     return preds
-
-def get_high_umi_idx(gene_list):
-    # Genes used for linear model fitting
-    try:
-        high_umi = np.load('../genes_with_hi_mean.npy', allow_pickle=True)
-    except:
-        high_umi = np.load('./genes_with_hi_mean.npy', allow_pickle=True)
-    high_umi_idx = np.where([g in high_umi for g in gene_list])[0]
-    return high_umi_idx
-
-def get_mean_ctrl(adata):
-    return adata[adata.obs['condition'] == 'ctrl'].to_df().mean().reset_index(
-        drop=True)
-
-def get_single_name(g, all_perts):
-    name = g+'+ctrl'
-    if name in all_perts:
-        return name
-    else:
-        return 'ctrl+'+g
-
-
-def get_test_set_results_seen2(res, sel_GI_type):
-    # Get relevant test set results
-    test_pert_cats = [p for p in np.unique(res['pert_cat']) if
-                      p in GIs[sel_GI_type] or 'ctrl' in p]
-    pred_idx = np.where([t in test_pert_cats for t in res['pert_cat']])
-    out = {}
-    for key in res:
-        out[key] = res[key][pred_idx]
-    return out
-
-## Synergy loss calculation functions
-def get_all_vectors(all_res, mean_control, double,
-                    single1, single2, high_umi_idx):
-    # Pred
-    pred_df = pd.DataFrame(all_res['pred'])
-    pred_df['condition'] = all_res['pert_cat']
-    subset_df = pred_df[pred_df['condition'] == double].iloc[:, :-1]
-    delta_double_pred = subset_df.mean(0) - mean_control
-    single_df_1_pred = pred_df[pred_df['condition'] == single1].iloc[:, :-1]
-    single_df_2_pred = pred_df[pred_df['condition'] == single2].iloc[:, :-1]
-
-    # True
-    truth_df = pd.DataFrame(all_res['truth'])
-    truth_df['condition'] = all_res['pert_cat']
-    subset_df = truth_df[truth_df['condition'] == double].iloc[:, :-1]
-    delta_double_truth = subset_df.mean(0) - mean_control
-    single_df_1_truth = truth_df[truth_df['condition'] == single1].iloc[:, :-1]
-    single_df_2_truth = truth_df[truth_df['condition'] == single2].iloc[:, :-1]
-
-    delta_single_truth_1 = single_df_1_truth.mean(0) - mean_control
-    delta_single_truth_2 = single_df_2_truth.mean(0) - mean_control
-    delta_single_pred_1 = single_df_1_pred.mean(0) - mean_control
-    delta_single_pred_2 = single_df_2_pred.mean(0) - mean_control
-
-    return {'single_pred_1': delta_single_pred_1.values[high_umi_idx],
-            'single_pred_2': delta_single_pred_2.values[high_umi_idx],
-            'double_pred': delta_double_pred.values[high_umi_idx],
-            'single_truth_1': delta_single_truth_1.values[high_umi_idx],
-            'single_truth_2': delta_single_truth_2.values[high_umi_idx],
-            'double_truth': delta_double_truth.values[high_umi_idx]}
-
-
-def get_coeffs_synergy(singles_expr, double_expr):
-    results = {}
-    results['ts'] = TheilSenRegressor(fit_intercept=False,
-                                      max_subpopulation=1e5,
-                                      max_iter=1000,
-                                      random_state=1000)
-    X = singles_expr
-    y = double_expr
-    try:
-        results['ts'].fit(X, y.ravel())
-    except:
-        print(X)
-        print(y)
-    results['c1'] = results['ts'].coef_[0]
-    results['c2'] = results['ts'].coef_[1]
-    results['mag'] = np.sqrt((results['c1'] ** 2 + results['c2'] ** 2))
-    return results
-
-
-def Fit(all_vectors, type_='pertnet'):
-    if type_ == 'pertnet':
-        singles_expr = np.array(
-            [all_vectors['single_pred_1'], all_vectors['single_pred_2']]).T
-        first_expr = np.array([all_vectors['single_pred_1']]).T
-        second_expr = np.array([all_vectors['single_pred_2']]).T
-        double_expr = np.array(all_vectors['double_pred']).T
-
-    elif type_ == 'truth':
-        singles_expr = np.array(
-            [all_vectors['single_truth_1'], all_vectors['single_truth_2']]).T
-        first_expr = np.array([all_vectors['single_truth_1']]).T
-        second_expr = np.array([all_vectors['single_truth_2']]).T
-        double_expr = np.array(all_vectors['double_truth']).T
-
-    return get_coeffs_synergy(singles_expr, double_expr)
-
-
-def get_linear_params(pred_res, high_umi_idx, mean_control, all_perts):
-    results = {}
-    for c in set(pred_res['pert_cat']):
-        if 'ctrl' in c:
-            continue
-        double = c
-        single1 = get_single_name(double.split('+')[0], all_perts)
-        single2 = get_single_name(double.split('+')[1], all_perts)
-        all_vectors = get_all_vectors(pred_res, mean_control, double,
-                                      single1, single2, high_umi_idx)
-
-        pertnet_results = Fit(all_vectors, type_='pertnet')
-        truth_results = Fit(all_vectors, type_='truth')
-
-        results[c] = {
-            'truth': truth_results,
-            'pred': pertnet_results}
-
-    return results
 
 
 # Read in model for each gene
