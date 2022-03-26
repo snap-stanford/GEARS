@@ -3,3 +3,5 @@ pandas
 tqdm
 scikit-learn
 torch
+scanpy
+networkx
