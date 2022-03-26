@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore")
 sc.settings.verbosity = 0
 
 from .data_utils import get_DE_genes, get_dropout_non_zero_genes, DataSplitter
-from .utils import print_sys
+from .utils import print_sys, zip_data_download_wrapper
 
 class PertData:
     
@@ -24,10 +24,18 @@ class PertData:
             
     def load(self, data_name = None, 
              data_path = None):
-        if data_name in ['Norman', 'Adamson', 'Dixit']:
+        if data_name in ['norman', 'adamson', 'dixit']:
             ## load from harvard dataverse
-            self.adata = None
-            data_path = None
+            if data_name == 'norman':
+                url = 'https://dataverse.harvard.edu/api/access/datafile/6154020'
+                
+            data_path = os.path.join(self.data_path, data_name)
+            zip_data_download_wrapper(url, data_path, self.data_path)            
+            self.dataset_name = data_path.split('/')[-1]
+            self.dataset_path = data_path
+            adata_path = os.path.join(data_path, 'perturb_processed.h5ad')
+            self.adata = sc.read_h5ad(adata_path)
+
         elif os.path.exists(data_path):
             adata_path = os.path.join(data_path, 'perturb_processed.h5ad')
             self.adata = sc.read_h5ad(adata_path)
@@ -44,6 +52,14 @@ class PertData:
         if os.path.isfile(dataset_fname):
             print_sys("Local copy of pyg dataset is detected. Loading...")
             self.dataset_processed = pickle.load(open(dataset_fname, "rb"))        
+            print_sys("Done!")
+        else:
+            self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
+            self.gene_names = self.adata.var.gene_name
+            print_sys("Creating pyg object for each cell in the data...")
+            self.dataset_processed = self.create_dataset_file()
+            print_sys("Saving new dataset pyg object at " + dataset_fname) 
+            pickle.dump(self.dataset_processed, open(dataset_fname, "wb"))    
             print_sys("Done!")
             
     def new_data_process(self, dataset_name,

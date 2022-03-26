@@ -16,7 +16,8 @@ from .model import PertNet_Model
 from .inference import evaluate, compute_metrics, deeper_analysis, \
                   non_dropout_analysis, compute_synergy_loss
 from .utils import loss_fct, uncertainty_loss_fct, parse_any_pert, \
-                  get_similarity_network, print_sys, GeneSimNetwork
+                  get_similarity_network, print_sys, GeneSimNetwork, \
+                  create_cell_graph_dataset_for_prediction
 
 torch.manual_seed(0)
 
@@ -108,14 +109,14 @@ class PertNet:
             self.config['G_go'] = sim_network.edge_index
             self.config['G_go_weight'] = sim_network.edge_weight
             
-        self.model = PertNet_Model(self.config)
+        self.model = PertNet_Model(self.config).to(self.device)
         self.best_model = deepcopy(self.model)
         
     def load_pretrained(self, path):
         with open(os.path.join(path, 'config.pkl'), 'rb') as f:
             config = pickle.load(f)
         
-        del config['device']
+        del config['device'], config['num_genes']
         self.model_initialize(**config)
         self.config = config
         
@@ -145,11 +146,43 @@ class PertNet:
        
         torch.save(self.best_model.state_dict(), os.path.join(path, 'model.pt'))
     
-    def predict(self, gene_list):
+    def predict(self, pert_list):
         ## given a list of single/combo genes, return the transcriptome
         ## if uncertainty mode is on, also return uncertainty score.
-        pass
-    
+        
+        self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
+        for pert in pert_list:
+            for i in pert:
+                if i not in self.gene_list:
+                    raise ValueError("The gene is not in the perturbation graph. Please select from PertNet.gene_list!")
+        
+        if self.config['uncertainty']:
+            results_logvar = {}
+            
+        self.best_model = self.best_model.to(self.device)
+        results_pred = {}
+        from torch_geometric.data import DataLoader
+        for pert in pert_list:
+            cg = create_cell_graph_dataset_for_prediction(pert, self.ctrl_adata, self.gene_list, self.device)
+            loader = DataLoader(cg, 300, shuffle = False)
+            batch = next(iter(loader))
+            batch.to(self.device)
+
+            with torch.no_grad():
+                if self.config['uncertainty']:
+                    p, unc = self.best_model(batch)
+                    results_logvar['_'.join(pert)] = np.mean(unc.detach().cpu().numpy(), axis = 0)
+                else:
+                    p = self.best_model(batch)
+                    
+            results_pred['_'.join(pert)] = np.mean(p.detach().cpu().numpy(), axis = 0)
+        
+        if self.config['uncertainty']:
+            results_logvar_sum = {i: np.exp(-np.mean(j)) for i,j in results_logvar.items()}    
+            return results_pred, results_logvar_sum
+        else:
+            return results_pred
+        
     def combo_fit(self, gene_combo_list):
         ## given a list of gene pair, return (1) transcriptome of A,B,A+B and (2) type of GI. 
         ## if uncertainty mode is on, also return uncertainty score.

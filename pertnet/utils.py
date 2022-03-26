@@ -8,6 +8,8 @@ from tqdm import tqdm
 import pickle
 import sys, os
 import requests
+from torch_geometric.data import Data
+from zipfile import ZipFile 
 
 def parse_single_pert(i):
     a = i.split('+')[0]
@@ -66,6 +68,18 @@ def dataverse_download(url, save_path):
                 file.write(data)
         progress_bar.close()
 
+        
+def zip_data_download_wrapper(url, save_path, data_path):
+
+    if os.path.exists(save_path):
+        print_sys('Found local copy...')
+    else:
+        dataverse_download(url, save_path + '.zip')
+        print_sys('Extracting zip file...')
+        with ZipFile((save_path + '.zip'), 'r') as zip:
+            zip.extractall(path = data_path)
+        print_sys("Done!")  
+        
 def get_go_auto(gene_list, data_path, data_name):
     go_path = os.path.join(data_path, data_name, 'go.csv')
     
@@ -249,3 +263,24 @@ def print_sys(s):
         s (str): the string to print
     """
     print(s, flush = True, file = sys.stderr)
+    
+def create_cell_graph_for_prediction(X, pert_idx, pert_gene):
+
+    # If perturbations will be represented as node features
+    pert_feats = np.zeros(len(X))
+    for p in pert_idx:
+        pert_feats[int(np.abs(p))] = np.sign(p)
+    feature_mat = torch.Tensor(np.vstack([X, pert_feats])).T
+
+    return Data(x=feature_mat, pert=pert_gene)
+    
+
+def create_cell_graph_dataset_for_prediction(pert_gene, ctrl_adata, gene_names, device, num_samples = 300):
+    Xs = []
+    # Get the indices (and signs) of applied perturbation
+    pert_idx = np.where(pert_gene == gene_names)[0]
+
+    Xs = ctrl_adata[np.random.randint(0, len(ctrl_adata), num_samples), :].X.toarray()
+    # Create cell graphs
+    cell_graphs = [create_cell_graph_for_prediction(X, pert_idx, pert_gene).to(device) for X in Xs]
+    return cell_graphs
