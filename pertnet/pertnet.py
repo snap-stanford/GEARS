@@ -58,6 +58,7 @@ class PertNet:
         self.ctrl_expression = torch.tensor(np.mean(self.adata.X[self.adata.obs.condition == 'ctrl'], axis = 0)).reshape(-1,).to(self.device)
         pert_full_id2pert = dict(self.adata.obs[['condition_name', 'condition']].values)
         self.dict_filter = {pert_full_id2pert[i]: j for i,j in self.adata.uns['non_zeros_gene_idx'].items()}
+        self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
         
     def model_initialize(self, hidden_size = 64,
                          num_go_gnn_layers = 1, 

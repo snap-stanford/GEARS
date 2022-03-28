@@ -234,23 +234,14 @@ class PertData:
         pert_idx = [np.where(p == self.gene_names)[0][0]
                     for p in pert_category.split('+')
                     if p != 'ctrl']
-
-        # binary perturbations, attach a sign to index value
-        for i, p in enumerate(pert_idx):
-            sign = np.sign(adata_.X[0, p] - self.ctrl_adata.X[0, p])
-            if sign == 0:
-                sign = 1
-            pert_idx[i] = sign * pert_idx[i]
-
         return pert_idx
 
     # Set up feature matrix and output
     def create_cell_graph(self, X, y, de_idx, pert, pert_idx=None):
-        # If perturbations will be represented as node features
         pert_feats = np.zeros(len(X[0]))
         if pert_idx is not None:
             for p in pert_idx:
-                pert_feats[int(np.abs(p))] = np.sign(p)
+                pert_feats[int(np.abs(p))] = 1
         pert_feats = np.expand_dims(pert_feats, 0)
         feature_mat = torch.Tensor(np.concatenate([X, pert_feats])).T
 
@@ -271,7 +262,7 @@ class PertData:
 
         # When considering a non-control perturbation
         if pert_category != 'ctrl':
-            # Get the indices (and signs) of applied perturbation
+            # Get the indices of applied perturbation
             pert_idx = self.get_pert_idx(pert_category, adata_)
 
             # Store list of genes that are most differentially expressed for testing
