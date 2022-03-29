@@ -28,7 +28,10 @@ class PertData:
             ## load from harvard dataverse
             if data_name == 'norman':
                 url = 'https://dataverse.harvard.edu/api/access/datafile/6154020'
-                
+            elif data_name == 'adamson':
+                url = 'https://dataverse.harvard.edu/api/access/datafile/6154417'
+            elif data_name == 'dixit':
+                url = 'https://dataverse.harvard.edu/api/access/datafile/6154416'
             data_path = os.path.join(self.data_path, data_name)
             zip_data_download_wrapper(url, data_path, self.data_path)            
             self.dataset_name = data_path.split('/')[-1]
