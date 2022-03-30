@@ -210,11 +210,6 @@ def uncertainty_loss_fct(pred, logvar, y, perts, reg = 0.1, ctrl = None, directi
             pred_p = pred[np.where(perts==p)[0]]
             y_p = y[np.where(perts==p)[0]]
             logvar_p = logvar[np.where(perts==p)[0]]
-
-        pert_idx = np.where(perts == p)[0]
-        pred_p = pred[pert_idx]
-        y_p = y[pert_idx]
-        logvar_p = logvar[pert_idx]
                          
         # uncertainty based loss
         losses += torch.sum((pred_p - y_p)**(2 + gamma) + reg * torch.exp(-logvar_p) * (pred_p - y_p)**(2 + gamma))/pred_p.shape[0]/pred_p.shape[1]

@@ -20,7 +20,8 @@ def evaluate(loader, model, uncertainty, device):
     pred_de = []
     truth_de = []
     results = {}
-
+    logvar = []
+    
     for itr, batch in enumerate(loader):
 
         batch.to(device)
@@ -28,13 +29,14 @@ def evaluate(loader, model, uncertainty, device):
 
         with torch.no_grad():
             if uncertainty:
-                p, logvar = model(batch)
+                p, unc = model(batch)
+                logvar.extend(unc.cpu())
             else:
                 p = model(batch)
             t = batch.y
             pred.extend(p.cpu())
             truth.extend(t.cpu())
-
+            
             # Differentially expressed genes
             for itr, de_idx in enumerate(batch.de_idx):
                 pred_de.append(p[itr, de_idx])
@@ -51,7 +53,10 @@ def evaluate(loader, model, uncertainty, device):
     truth_de = torch.stack(truth_de)
     results['pred_de']= pred_de.detach().cpu().numpy()
     results['truth_de']= truth_de.detach().cpu().numpy()
-
+    
+    if uncertainty:
+        results['logvar'] = torch.stack(logvar).detach().cpu().numpy()
+    
     return results
 
 

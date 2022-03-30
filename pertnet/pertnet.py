@@ -59,7 +59,20 @@ class PertNet:
         pert_full_id2pert = dict(self.adata.obs[['condition_name', 'condition']].values)
         self.dict_filter = {pert_full_id2pert[i]: j for i,j in self.adata.uns['non_zeros_gene_idx'].items()}
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
-        
+    
+    def tunable_parameters(self):
+        return {'hidden_size': 'hidden dimension, default 64',
+                'num_go_gnn_layers': 'number of GNN layers for GO graph, default 1',
+                'num_gene_gnn_layers': 'number of GNN layers for co-expression gene graph, default 1',
+                'decoder_hidden_size': 'hidden dimension for gene-specific decoder, default 16',
+                'num_similar_genes_go_graph': 'number of maximum similar K genes in the GO graph, default 20',
+                'num_similar_genes_co_express_graph': 'number of maximum similar K genes in the co expression graph, default 20',
+                'coexpress_threshold': 'pearson correlation threshold when constructing coexpression graph, default 0.4',
+                'uncertainty': 'whether or not to turn on uncertainty mode, default False',
+                'uncertainty_reg': 'regularization term to balance uncertainty loss and prediction loss, default 1',
+                'direction_lambda': 'regularization term to balance direction loss and prediction loss, default 1'
+               }
+    
     def model_initialize(self, hidden_size = 64,
                          num_go_gnn_layers = 1, 
                          num_gene_gnn_layers = 1,
