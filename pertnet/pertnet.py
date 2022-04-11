@@ -209,7 +209,6 @@ class PertNet:
         
         train_loader = self.dataloader['train_loader']
         val_loader = self.dataloader['val_loader']
-        test_loader = self.dataloader['test_loader']
             
         self.model = self.model.to(self.device)
         
@@ -284,6 +283,12 @@ class PertNet:
         print_sys("Done!")
         self.best_model = best_model
 
+        if 'test_loader' not in self.dataloader:
+            print_sys('Done! No test dataloader detected.')
+            return
+            
+        # Model testing
+        test_loader = self.dataloader['test_loader']
         print_sys("Start Testing...")
         test_res = evaluate(test_loader, self.best_model, self.config['uncertainty'], self.device)   
         test_metrics, test_pert_res = compute_metrics(test_res)    

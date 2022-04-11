@@ -106,11 +106,13 @@ class PertData:
                       test_perts = None,
                       only_test_set_perts = False,
                       test_pert_genes = None):
-        available_splits = ['simulation', 'simulation_single', 'combo_seen0', 'combo_seen1', 'combo_seen2', 'single']
+        available_splits = ['simulation', 'simulation_single', 'combo_seen0', 'combo_seen1', 
+                            'combo_seen2', 'single', 'no_test', 'no_split']
         if split not in available_splits:
-            raise ValueError('currently, we only support ' + ','.split(available_splits))
+            raise ValueError('currently, we only support ' + ','.join(available_splits))
         self.split = split
         self.seed = seed
+        self.subgroup = None
         self.train_gene_set_size = train_gene_set_size
         
         split_folder = os.path.join(self.dataset_path, 'splits')
@@ -164,6 +166,10 @@ class PertData:
                 DS = DataSplitter(self.adata, split_type=split)
                 adata = DS.split_data(test_size=combo_single_split_test_set_fraction, seed=seed)
             
+            elif split == 'no_test':
+                DS = DataSplitter(self.adata, split_type=split)
+                adata = DS.split_data(test_size=combo_single_split_test_set_fraction, seed=seed)
+            
             elif split == 'no_split':          
                 adata = self.adata
                 adata.obs['split'] = 'test'
@@ -205,24 +211,34 @@ class PertData:
             print_sys("Dataloaders created...")
             return {'test_loader': test_loader}
         else:
-            for i in ['train', 'val', 'test']:
+            if self.split =='no_test':
+                splits = ['train','val']
+            else:
+                splits = ['train','val','test']
+            for i in splits:
                 cell_graphs[i] = []
                 for p in self.set2conditions[i]:
                     cell_graphs[i].extend(self.dataset_processed[p])
 
             print_sys("Creating dataloaders....")
+            
             # Set up dataloaders
             train_loader = DataLoader(cell_graphs['train'],
                                 batch_size=batch_size, shuffle=True, drop_last = True)
             val_loader = DataLoader(cell_graphs['val'],
                                 batch_size=batch_size, shuffle=True)
-            test_loader = DataLoader(cell_graphs['test'],
+            
+            if self.split !='no_test':
+                test_loader = DataLoader(cell_graphs['test'],
                                 batch_size=batch_size, shuffle=False)
+                self.dataloader =  {'train_loader': train_loader,
+                                    'val_loader': val_loader,
+                                    'test_loader': test_loader}
 
+            else: 
+                self.dataloader =  {'train_loader': train_loader,
+                                    'val_loader': val_loader}
             print_sys("Done!")
-            self.dataloader =  {'train_loader': train_loader,
-                                'val_loader': val_loader,
-                                'test_loader': test_loader}
         del self.dataset_processed # clean up some memory
     
         

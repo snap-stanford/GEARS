@@ -168,6 +168,14 @@ class DataSplitter():
             train, val, val_subgroup = self.get_simulation_split_single(train,
                                                                   0.9,
                                                                   seed)
+        elif self.split_type == 'no_test':
+            print('test_pert_genes',str(test_pert_genes))
+            print('test_perts',str(test_perts))
+            
+            train, val = self.get_split_list(unique_perts,
+                                          test_pert_genes=test_pert_genes,
+                                          test_perts=test_perts,
+                                          test_size=test_size)      
         else:
             train, test = self.get_split_list(unique_perts,
                                           test_pert_genes=test_pert_genes,
@@ -178,7 +186,8 @@ class DataSplitter():
 
         map_dict = {x: 'train' for x in train}
         map_dict.update({x: 'val' for x in val})
-        map_dict.update({x: 'test' for x in test})
+        if self.split_type != 'no_test':
+            map_dict.update({x: 'test' for x in test})
         map_dict.update({'ctrl': 'train'})
 
         self.adata.obs[split_name] = self.adata.obs['condition'].map(map_dict)
@@ -352,6 +361,11 @@ class DataSplitter():
                                      int(len(combo_perts) * test_size))       
                 else:
                     test_perts = np.array(test_perts)
+        else:
+            if test_perts is None:
+                test_perts = np.random.choice(combo_perts,
+                                    int(len(combo_perts) * test_size))
+        
         train_perts = [p for p in pert_list if (p not in test_perts)
                                         and (p not in hold_out)]
         return train_perts, test_perts
