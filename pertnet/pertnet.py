@@ -17,7 +17,8 @@ from .inference import evaluate, compute_metrics, deeper_analysis, \
                   non_dropout_analysis, compute_synergy_loss
 from .utils import loss_fct, uncertainty_loss_fct, parse_any_pert, \
                   get_similarity_network, print_sys, GeneSimNetwork, \
-                  create_cell_graph_dataset_for_prediction
+                  create_cell_graph_dataset_for_prediction, get_mean_control, \
+                  get_GI_genes_idx, get_GI_params
 
 torch.manual_seed(0)
 
@@ -197,10 +198,21 @@ class PertNet:
         else:
             return results_pred
         
-    def combo_fit(self, gene_combo_list):
-        ## given a list of gene pair, return (1) transcriptome of A,B,A+B and (2) type of GI. 
+    def GI_predict(self, combo, GI_genes_file='./genes_with_hi_mean.npy'):
+        ## given a gene pair, return (1) transcriptome of A,B,A+B and (2) GI scores. 
         ## if uncertainty mode is on, also return uncertainty score.
-        pass
+        
+        preds = self.predict([[combo[0]], [combo[1]], combo])
+
+        mean_control = get_mean_control(self.adata).values  
+        preds = {p:preds[p]-mean_control for p in preds} 
+
+        if GI_genes_file is not None:
+            # If focussing on a specific subset of genes for calculating metrics
+            GI_genes_idx = get_GI_genes_idx(self.adata, GI_genes_file)
+            preds = {p:preds[p][GI_genes_idx] for p in preds} 
+
+        return get_GI_params(preds, combo)
     
     def train(self, epochs = 20, 
               lr = 1e-3,

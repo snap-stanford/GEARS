@@ -11,6 +11,11 @@ import requests
 from torch_geometric.data import Data
 from zipfile import ZipFile 
 
+import statsmodels.api as sm
+from sklearn.linear_model import LinearRegression, TheilSenRegressor
+from dcor import distance_correlation, partial_distance_correlation
+from sklearn.metrics import r2_score
+
 def parse_single_pert(i):
     a = i.split('+')[0]
     b = i.split('+')[1]
@@ -279,3 +284,53 @@ def create_cell_graph_dataset_for_prediction(pert_gene, ctrl_adata, gene_names, 
     # Create cell graphs
     cell_graphs = [create_cell_graph_for_prediction(X, pert_idx, pert_gene).to(device) for X in Xs]
     return cell_graphs
+
+##
+##GI related utils
+##
+
+def get_coeffs(singles_expr, first_expr, second_expr, double_expr):
+    results = {}
+    results['ts'] = TheilSenRegressor(fit_intercept=False,
+                          max_subpopulation=1e5,
+                          max_iter=1000,
+                          random_state=1000)   
+    X = singles_expr
+    y = double_expr
+    results['ts'].fit(X, y.ravel())
+    Zts = results['ts'].predict(X)
+    results['c1'] = results['ts'].coef_[0]
+    results['c2'] = results['ts'].coef_[1]
+    results['mag'] = np.sqrt((results['c1']**2 + results['c2']**2))
+    
+    results['dcor'] = distance_correlation(singles_expr, double_expr)
+    results['dcor_singles'] = distance_correlation(first_expr, second_expr)
+    results['dcor_first'] = distance_correlation(first_expr, double_expr)
+    results['dcor_second'] = distance_correlation(second_expr, double_expr)
+    results['corr_fit'] = np.corrcoef(Zts.flatten(), double_expr.flatten())[0,1]
+    results['dominance'] = np.abs(np.log10(results['c1']/results['c2']))
+    results['eq_contr'] = np.min([results['dcor_first'], results['dcor_second']])/\
+                        np.max([results['dcor_first'], results['dcor_second']])
+    
+    return results
+
+def get_GI_params(preds, combo):
+    
+    singles_expr = np.array([preds[combo[0]], preds[combo[1]]]).T
+    first_expr = np.array(preds[combo[0]]).T
+    second_expr = np.array(preds[combo[1]]).T
+    double_expr = np.array(preds[combo[0]+'_'+combo[1]]).T
+    
+    return get_coeffs(singles_expr, first_expr, second_expr, double_expr)
+
+def get_GI_genes_idx(adata, GI_gene_file):
+    # Genes used for linear model fitting
+    GI_genes = np.load(GI_gene_file, allow_pickle=True)
+    GI_genes_idx = np.where([g in GI_genes for g in adata.var.gene_name.values])[0]
+    
+    return GI_genes_idx
+
+def get_mean_control(adata):
+    cols = adata.var.gene_name.values.astype('str')
+    mean_ctrl_exp = adata[adata.obs['condition'] == 'ctrl'].to_df().mean()
+    return mean_ctrl_exp
