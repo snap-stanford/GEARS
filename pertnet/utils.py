@@ -278,7 +278,7 @@ def create_cell_graph_for_prediction(X, pert_idx, pert_gene):
 def create_cell_graph_dataset_for_prediction(pert_gene, ctrl_adata, gene_names, device, num_samples = 300):
     Xs = []
     # Get the indices (and signs) of applied perturbation
-    pert_idx = np.where(pert_gene == gene_names)[0]
+    pert_idx = [np.where(p == np.array(gene_names))[0][0] for p in pert_gene]
 
     Xs = ctrl_adata[np.random.randint(0, len(ctrl_adata), num_samples), :].X.toarray()
     # Create cell graphs
