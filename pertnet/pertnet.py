@@ -175,6 +175,7 @@ class PertNet:
             results_logvar = {}
             
         self.best_model = self.best_model.to(self.device)
+        self.best_model.eval()
         results_pred = {}
         from torch_geometric.data import DataLoader
         for pert in pert_list:
