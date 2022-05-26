@@ -3,7 +3,7 @@
 This repository hosts the official implementation of GEARS, a method that can predict transcriptional response to both single and multi-gene perturbations using single-cell RNA-sequencing data from perturbational screens. 
 
 
-<p align="center"><img src="https://raw.githubusercontent.com/snap-stanford/GEARS/img/gears.png" alt="problems" width="500px" /></p>
+<p align="center"><img src="img/gears.png" alt="gears" width="500px" /></p>
 
 
 ### Installation 
