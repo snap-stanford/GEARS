@@ -23,7 +23,7 @@ with open(path.join(this_directory, 'requirements.txt'),
           encoding='utf-8') as f:
     requirements = f.read().splitlines()
 
-setup(name='GEARS',
+setup(name='cell-gears',
       version=__version__,
       license='MIT',
       description='GEARS',

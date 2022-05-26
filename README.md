@@ -54,8 +54,8 @@ pert_data.load(data_path = './data/XXX')
 |-----------------|-------------|
 | [Dataset Tutorial](demo/data_tutorial.ipynb) | Tutorial on how to use the dataset loader and read customized data|
 | [Model Tutorial](demo/model_tutorial.ipynb) | Tutorial on how to use the GEARS model to train a predictor |
-| [Plot top 20 DE genes](demo/plot_top_20_DE.ipynb) | Tutorial on how to plot the top 20 DE genes|
-| [Uncertainty](demo/uncertainty.ipynb) | Tutorial on how to train an uncertainty-aware GEARS model |
+| [Plot top 20 DE genes](demo/tutorial_plot_top20_DE.ipynb) | Tutorial on how to plot the top 20 DE genes|
+| [Uncertainty](demo/tutorial_uncertainty.ipynb) | Tutorial on how to train an uncertainty-aware GEARS model |
 
 ### Cite Us
 
