@@ -1,2 +1,2 @@
-from .pertnet import PertNet
+from .gears import GEARS
 from .pertdata import PertData

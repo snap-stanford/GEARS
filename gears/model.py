@@ -29,13 +29,13 @@ class MLP(torch.nn.Module):
             return self.network(x)
 
 
-class PertNet_Model(torch.nn.Module):
+class GEARS_Model(torch.nn.Module):
     """
-    PertNet
+    GEARS
     """
 
     def __init__(self, args):
-        super(PertNet_Model, self).__init__()
+        super(GEARS_Model, self).__init__()
         self.args = args       
         self.num_genes = args['num_genes']
         hidden_size = args['hidden_size']

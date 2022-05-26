@@ -1,4 +1,4 @@
-"""PertNet version file
+"""GEARS version file
 """
 # Based on NiLearn package
 # License: simplified BSD

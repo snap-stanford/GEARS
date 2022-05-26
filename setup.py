@@ -5,7 +5,7 @@ from os import path
 from io import open  # for Python 2 and 3 compatibility
 
 # get __version__ from _version.py
-ver_file = path.join('pertnet', 'version.py')
+ver_file = path.join('gears', 'version.py')
 with open(ver_file) as f:
     exec(f.read())
 
@@ -23,14 +23,14 @@ with open(path.join(this_directory, 'requirements.txt'),
           encoding='utf-8') as f:
     requirements = f.read().splitlines()
 
-setup(name='PertNet',
+setup(name='GEARS',
       version=__version__,
       license='MIT',
-      description='PertNet',
+      description='GEARS',
       long_description=readme(),
       long_description_content_type='text/markdown',
-      url='https://github.com/snap-stanford/perturb_GNN',
-      author='PertNet Team',
+      url='https://github.com/snap-stanford/GEARS',
+      author='Yusuf Roohani, Kexin Huang, Jure Leskovec',
       packages=find_packages(exclude=['test']),
       zip_safe=False,
       include_package_data=True,

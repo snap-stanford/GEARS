@@ -12,7 +12,7 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.optim.lr_scheduler import StepLR
 
-from .model import PertNet_Model
+from .model import GEARS_Model
 from .inference import evaluate, compute_metrics, deeper_analysis, \
                   non_dropout_analysis, compute_synergy_loss
 from .utils import loss_fct, uncertainty_loss_fct, parse_any_pert, \
@@ -25,12 +25,12 @@ torch.manual_seed(0)
 import warnings
 warnings.filterwarnings("ignore")
 
-class PertNet:
+class GEARS:
     def __init__(self, pert_data, 
                  device = 'cuda',
                  weight_bias_track = False, 
-                 proj_name = 'PertNet', 
-                 exp_name = 'PertNet'):
+                 proj_name = 'GEARS', 
+                 exp_name = 'GEARS'):
         
         self.weight_bias_track = weight_bias_track
         
@@ -124,7 +124,7 @@ class PertNet:
             self.config['G_go'] = sim_network.edge_index
             self.config['G_go_weight'] = sim_network.edge_weight
             
-        self.model = PertNet_Model(self.config).to(self.device)
+        self.model = GEARS_Model(self.config).to(self.device)
         self.best_model = deepcopy(self.model)
         
     def load_pretrained(self, path):
@@ -169,7 +169,7 @@ class PertNet:
         for pert in pert_list:
             for i in pert:
                 if i not in self.gene_list:
-                    raise ValueError("The gene is not in the perturbation graph. Please select from PertNet.gene_list!")
+                    raise ValueError("The gene is not in the perturbation graph. Please select from GEARS.gene_list!")
         
         if self.config['uncertainty']:
             results_logvar = {}
