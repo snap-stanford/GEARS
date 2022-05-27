@@ -3,7 +3,7 @@
 This repository hosts the official implementation of GEARS, a method that can predict transcriptional response to both single and multi-gene perturbations using single-cell RNA-sequencing data from perturbational screens. 
 
 
-<p align="center"><img src="img/gears.png" alt="gears" width="500px" /></p>
+<p align="center"><img src="https://github.com/snap-stanford/GEARS/blob/master/img/gears.png" alt="gears" width="500px" /></p>
 
 
 ### Installation 
@@ -20,7 +20,7 @@ from gears import PertData, GEARS
 # get data
 pert_data = PertData('./data')
 # load dataset in paper: norman, adamson, dixit.
-pert_data.load(dataset = 'norman')
+pert_data.load(data_name = 'norman')
 # specify data split
 pert_data.prepare_split(split = 'simulation', seed = 1)
 # get dataloader with batch size
