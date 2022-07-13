@@ -12,7 +12,7 @@ Install [PyG](https://pytorch-geometric.readthedocs.io/en/latest/notes/installat
 
 ### Core API Interface
 
-Using the API, you can (1) reproduce the result in our paper and (2) train your own GEARS model on your perturbation screen using a few lines of code.
+Using the API, you can (1) reproduce the results in our paper and (2) train GEARS on your perturbation dataset using a few lines of code.
 
 ```python
 from gears import PertData, GEARS
@@ -40,7 +40,7 @@ gears_model.predict([['FOX1A', 'AHR'], ['FEV']])
 gears_model.GI_predict([['FOX1A', 'AHR'], ['FEV', 'AHR']])
 ```
 
-To use your own dataset, create a scanpy adata variable with a `gene_name` column in `adata.var`, and two columns `condition`, `cell_type` in `adata.obs`. Then run:
+To use your own dataset, create a scanpy adata object with a `gene_name` column in `adata.var`, and two columns `condition`, `cell_type` in `adata.obs`. Then run:
 
 ```python
 pert_data.new_data_process(dataset_name = 'XXX', adata = adata)
@@ -53,7 +53,7 @@ pert_data.load(data_path = './data/XXX')
 | Name | Description |
 |-----------------|-------------|
 | [Dataset Tutorial](demo/data_tutorial.ipynb) | Tutorial on how to use the dataset loader and read customized data|
-| [Model Tutorial](demo/model_tutorial.ipynb) | Tutorial on how to use the GEARS model to train a predictor |
+| [Model Tutorial](demo/model_tutorial.ipynb) | Tutorial on how to train GEARS |
 | [Plot top 20 DE genes](demo/tutorial_plot_top20_DE.ipynb) | Tutorial on how to plot the top 20 DE genes|
 | [Uncertainty](demo/tutorial_uncertainty.ipynb) | Tutorial on how to train an uncertainty-aware GEARS model |
 
