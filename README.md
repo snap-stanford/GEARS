@@ -3,7 +3,7 @@
 This repository hosts the official implementation of GEARS, a method that can predict transcriptional response to both single and multi-gene perturbations using single-cell RNA-sequencing data from perturbational screens. 
 
 
-<p align="center"><img src="https://github.com/snap-stanford/GEARS/blob/master/img/gears.png" alt="gears" width="500px" /></p>
+<p align="center"><img src="https://github.com/snap-stanford/GEARS/blob/master/img/gears.png" alt="gears" width="900px" /></p>
 
 
 ### Installation 
@@ -60,5 +60,12 @@ pert_data.load(data_path = './data/XXX')
 ### Cite Us
 
 ```
-
+@article {Roohani2022.07.12.499735,
+	author = {Roohani, Yusuf and Huang, Kexin and Leskovec, Jure},
+	title = {GEARS: Predicting transcriptional outcomes of novel multi-gene perturbations},
+	year = {2022},
+	doi = {10.1101/2022.07.12.499735},
+	publisher = {Cold Spring Harbor Laboratory},
+	journal = {bioRxiv}
+}
 ```
