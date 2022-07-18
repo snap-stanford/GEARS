@@ -57,6 +57,8 @@ pert_data.load(data_path = './data/XXX')
 | [Plot top 20 DE genes](demo/tutorial_plot_top20_DE.ipynb) | Tutorial on how to plot the top 20 DE genes|
 | [Uncertainty](demo/tutorial_uncertainty.ipynb) | Tutorial on how to train an uncertainty-aware GEARS model |
 
+
+
 ### Cite Us
 
 ```
@@ -70,4 +72,5 @@ pert_data.load(data_path = './data/XXX')
 }
 ```
 Preprint: [Link](https://www.biorxiv.org/content/10.1101/2022.07.12.499735v1)
+
 Code for reproducing figures: [Link](https://github.com/yhr91/gears_misc)
