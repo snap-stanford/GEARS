@@ -10,6 +10,15 @@ This repository hosts the official implementation of GEARS, a method that can pr
 
 Install [PyG](https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html), and then do `pip install cell-gears`.
 
+###
+```python
+conda create -n gears python=3.9
+conda activate gears
+
+# install with cu113 as it seems to work on 
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu113
+```
+
 ### Core API Interface
 
 Using the API, you can (1) reproduce the results in our paper and (2) train GEARS on your perturbation dataset using a few lines of code.
