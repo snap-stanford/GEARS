@@ -15,8 +15,15 @@ Install [PyG](https://pytorch-geometric.readthedocs.io/en/latest/notes/installat
 conda create -n gears python=3.9
 conda activate gears
 
-# install with cu113 as it seems to work on 
+# install with cu113 as it seems to work on 11.4 AMI that comes with AWSParallelCluster
 pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu113
+
+python -c "import torch; print(torch.__version__)"
+python -c "import torch; print(torch.version.cuda)"
+
+pip install torch-scatter -f https://data.pyg.org/whl/torch-${TORCH}+${CUDA}.html
+pip install torch-sparse -f https://data.pyg.org/whl/torch-${TORCH}+${CUDA}.html
+pip install torch-geometric
 ```
 
 ### Core API Interface
