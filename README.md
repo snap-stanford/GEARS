@@ -19,7 +19,9 @@ conda activate gears
 pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu113
 
 python -c "import torch; print(torch.__version__)"
+TORCH="1.12.0"
 python -c "import torch; print(torch.version.cuda)"
+CUDA="cu113"
 
 pip install torch-scatter -f https://data.pyg.org/whl/torch-${TORCH}+${CUDA}.html
 pip install torch-sparse -f https://data.pyg.org/whl/torch-${TORCH}+${CUDA}.html
