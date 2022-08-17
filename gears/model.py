@@ -11,7 +11,7 @@ class MLP(torch.nn.Module):
         super(MLP, self).__init__()
         layers = []
         for s in range(len(sizes) - 1):
-            layers += [
+            layers = layers + [
                 torch.nn.Linear(sizes[s], sizes[s + 1]),
                 torch.nn.BatchNorm1d(sizes[s + 1])
                 if batch_norm and s < len(sizes) - 1 else None,
@@ -23,10 +23,7 @@ class MLP(torch.nn.Module):
         self.network = torch.nn.Sequential(*layers)
         self.relu = torch.nn.ReLU()
     def forward(self, x):
-        if self.activation == "ReLU":
-            return self.relu(self.network(x))
-        else:
-            return self.network(x)
+        return self.network(x)
 
 
 class GEARS_Model(torch.nn.Module):
@@ -142,7 +139,7 @@ class GEARS_Model(torch.nn.Module):
         pert_track = {}
         for i, j in enumerate(pert_index[0]):
             if j in pert_track:
-                pert_track[j] += pert_global_emb[pert_index[1][i]]
+                pert_track[j] = pert_track[j] + pert_global_emb[pert_index[1][i]]
             else:
                 pert_track[j] = pert_global_emb[pert_index[1][i]]
 
@@ -154,7 +151,7 @@ class GEARS_Model(torch.nn.Module):
                 emb_total = self.pert_fuse(torch.stack(list(pert_track.values())))
 
             for idx, j in enumerate(pert_track.keys()):
-                base_emb[j] += emb_total[idx]
+                base_emb[j] = base_emb[j] + emb_total[idx]
 
         base_emb = base_emb.reshape(num_graphs * self.num_genes, -1)
         
