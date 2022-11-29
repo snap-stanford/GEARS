@@ -138,10 +138,10 @@ class GEARS_Model(torch.nn.Module):
             
         pert_track = {}
         for i, j in enumerate(pert_index[0]):
-            if j in pert_track:
-                pert_track[j] = pert_track[j] + pert_global_emb[pert_index[1][i]]
+            if j.item() in pert_track:
+                pert_track[j.item()] = pert_track[j.item()] + pert_global_emb[pert_index[1][i]]
             else:
-                pert_track[j] = pert_global_emb[pert_index[1][i]]
+                pert_track[j.item()] = pert_global_emb[pert_index[1][i]]
 
         if len(list(pert_track.values())) > 0:
             if len(list(pert_track.values())) == 1:
