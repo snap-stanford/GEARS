@@ -30,7 +30,9 @@ class GEARS:
                  device = 'cuda',
                  weight_bias_track = False, 
                  proj_name = 'GEARS', 
-                 exp_name = 'GEARS'):
+                 exp_name = 'GEARS',
+                 pred_scalar = False,
+                 gi_predict = False):
         
         self.weight_bias_track = weight_bias_track
         
@@ -47,6 +49,7 @@ class GEARS:
         self.dataloader = pert_data.dataloader
         self.adata = pert_data.adata
         self.node_map = pert_data.node_map
+        self.node_map_pert = pert_data.node_map_pert
         self.data_path = pert_data.data_path
         self.dataset_name = pert_data.dataset_name
         self.split = pert_data.split
@@ -54,13 +57,26 @@ class GEARS:
         self.train_gene_set_size = pert_data.train_gene_set_size
         self.set2conditions = pert_data.set2conditions
         self.subgroup = pert_data.subgroup
+        self.gi_go = pert_data.gi_go
+        self.gi_predict = gi_predict
         self.gene_list = pert_data.gene_names.values.tolist()
+        self.pert_list = pert_data.pert_names.tolist()
         self.num_genes = len(self.gene_list)
+        self.num_perts = len(self.pert_list)
+        self.saved_pred = {}
+        self.saved_logvar_sum = {}
+        
         self.ctrl_expression = torch.tensor(np.mean(self.adata.X[self.adata.obs.condition == 'ctrl'], axis = 0)).reshape(-1,).to(self.device)
         pert_full_id2pert = dict(self.adata.obs[['condition_name', 'condition']].values)
-        self.dict_filter = {pert_full_id2pert[i]: j for i,j in self.adata.uns['non_zeros_gene_idx'].items()}
+        if gi_predict:
+            self.dict_filter = None
+        else:
+            self.dict_filter = {pert_full_id2pert[i]: j for i,j in self.adata.uns['non_zeros_gene_idx'].items() if i in pert_full_id2pert}
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
-    
+        
+        gene_dict = {g:i for i,g in enumerate(self.gene_list)}
+        self.pert2gene = {p:gene_dict[pert] for p, pert in enumerate(self.pert_list) if pert in self.gene_list}
+        
     def tunable_parameters(self):
         return {'hidden_size': 'hidden dimension, default 64',
                 'num_go_gnn_layers': 'number of GNN layers for GO graph, default 1',
@@ -87,7 +103,12 @@ class GEARS:
                          G_go = None,
                          G_go_weight = None,
                          G_coexpress = None,
-                         G_coexpress_weight = None):
+                         G_coexpress_weight = None,
+                         no_perturb = False, 
+                         cell_fitness_pred = False,
+                         go_path = None,
+                         #pert2gene = None
+                        ):
         
         self.config = {'hidden_size': hidden_size,
                        'num_go_gnn_layers' : num_go_gnn_layers, 
@@ -104,7 +125,11 @@ class GEARS:
                        'G_coexpress': G_coexpress,
                        'G_coexpress_weight': G_coexpress_weight,
                        'device': self.device,
-                       'num_genes': self.num_genes
+                       'num_genes': self.num_genes,
+                       'num_perts': self.num_perts,
+                       'no_perturb': no_perturb,
+                       'cell_fitness_pred': cell_fitness_pred,
+                       #'pert2gene': self.pert2gene
                       }
         
         if self.wandb:
@@ -119,8 +144,8 @@ class GEARS:
         
         if self.config['G_go'] is None:
             ## calculating gene ontology similarity graph
-            edge_list = get_similarity_network(network_type = 'go', adata = self.adata, threshold = coexpress_threshold, k = num_similar_genes_go_graph, gene_list = self.gene_list, data_path = self.data_path, data_name = self.dataset_name, split = self.split, seed = self.seed, train_gene_set_size = self.train_gene_set_size, set2conditions = self.set2conditions)
-            sim_network = GeneSimNetwork(edge_list, self.gene_list, node_map = self.node_map)
+            edge_list = get_similarity_network(network_type = 'go', adata = self.adata, threshold = coexpress_threshold, k = num_similar_genes_go_graph, gene_list = self.pert_list, data_path = self.data_path, data_name = self.dataset_name, split = self.split, seed = self.seed, train_gene_set_size = self.train_gene_set_size, set2conditions = self.set2conditions, gi_go = self.gi_go, dataset = go_path)
+            sim_network = GeneSimNetwork(edge_list, self.pert_list, node_map = self.node_map_pert)
             self.config['G_go'] = sim_network.edge_index
             self.config['G_go_weight'] = sim_network.edge_weight
             
@@ -131,7 +156,7 @@ class GEARS:
         with open(os.path.join(path, 'config.pkl'), 'rb') as f:
             config = pickle.load(f)
         
-        del config['device'], config['num_genes']
+        del config['device'], config['num_genes'], config['num_perts']
         self.model_initialize(**config)
         self.config = config
         
@@ -168,8 +193,8 @@ class GEARS:
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
         for pert in pert_list:
             for i in pert:
-                if i not in self.gene_list:
-                    raise ValueError("The gene is not in the perturbation graph. Please select from GEARS.gene_list!")
+                if i not in self.pert_list:
+                    raise ValueError(i+ " not in the perturbation graph. Please select from PertNet.gene_list!")
         
         if self.config['uncertainty']:
             results_logvar = {}
@@ -177,9 +202,20 @@ class GEARS:
         self.best_model = self.best_model.to(self.device)
         self.best_model.eval()
         results_pred = {}
+        results_logvar_sum = {}
+        
         from torch_geometric.data import DataLoader
         for pert in pert_list:
-            cg = create_cell_graph_dataset_for_prediction(pert, self.ctrl_adata, self.gene_list, self.device)
+            try:
+                #If prediction is already saved, then skip inference
+                results_pred['_'.join(pert)] = self.saved_pred['_'.join(pert)]
+                if self.config['uncertainty']:
+                    results_logvar_sum['_'.join(pert)] = self.saved_logvar_sum['_'.join(pert)]
+                continue
+            except:
+                pass
+            
+            cg = create_cell_graph_dataset_for_prediction(pert, self.ctrl_adata, self.pert_list, self.device)
             loader = DataLoader(cg, 300, shuffle = False)
             batch = next(iter(loader))
             batch.to(self.device)
@@ -188,13 +224,16 @@ class GEARS:
                 if self.config['uncertainty']:
                     p, unc = self.best_model(batch)
                     results_logvar['_'.join(pert)] = np.mean(unc.detach().cpu().numpy(), axis = 0)
+                    results_logvar_sum['_'.join(pert)] = np.exp(-np.mean(results_logvar['_'.join(pert)]))
                 else:
                     p = self.best_model(batch)
                     
             results_pred['_'.join(pert)] = np.mean(p.detach().cpu().numpy(), axis = 0)
+                
+        self.saved_pred.update(results_pred)
         
         if self.config['uncertainty']:
-            results_logvar_sum = {i: np.exp(-np.mean(j)) for i,j in results_logvar.items()}    
+            self.saved_logvar_sum.update(results_logvar_sum)
             return results_pred, results_logvar_sum
         else:
             return results_pred
@@ -203,17 +242,29 @@ class GEARS:
         ## given a gene pair, return (1) transcriptome of A,B,A+B and (2) GI scores. 
         ## if uncertainty mode is on, also return uncertainty score.
         
-        preds = self.predict([[combo[0]], [combo[1]], combo])
+        try:
+            # If prediction is already saved, then skip inference
+            pred = {}
+            pred[combo[0]] = self.saved_pred[combo[0]]
+            pred[combo[1]] = self.saved_pred[combo[1]]
+            pred['_'.join(combo)] = self.saved_pred['_'.join(combo)]
+        except:
+            if self.config['uncertainty']:
+                pred = self.predict([[combo[0]], [combo[1]], combo])[0]
+            else:
+                pred = self.predict([[combo[0]], [combo[1]], combo])
 
         mean_control = get_mean_control(self.adata).values  
-        preds = {p:preds[p]-mean_control for p in preds} 
+        pred = {p:pred[p]-mean_control for p in pred} 
 
         if GI_genes_file is not None:
             # If focussing on a specific subset of genes for calculating metrics
-            GI_genes_idx = get_GI_genes_idx(self.adata, GI_genes_file)
-            preds = {p:preds[p][GI_genes_idx] for p in preds} 
-
-        return get_GI_params(preds, combo)
+            GI_genes_idx = get_GI_genes_idx(self.adata, GI_genes_file)       
+        else:
+            GI_genes_idx = np.arange(len(self.adata.var.gene_name.values))
+            
+        pred = {p:pred[p][GI_genes_idx] for p in pred}
+        return get_GI_params(pred, combo)
     
     def plot_perturbation(self, query, save_file = None):
         import seaborn as sns
@@ -268,7 +319,7 @@ class GEARS:
         val_loader = self.dataloader['val_loader']
             
         self.model = self.model.to(self.device)
-        
+        best_model = deepcopy(self.model)
         optimizer = optim.Adam(self.model.parameters(), lr=lr, weight_decay = weight_decay)
         scheduler = StepLR(optimizer, step_size=1, gamma=0.5)
 

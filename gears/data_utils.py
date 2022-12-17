@@ -54,11 +54,14 @@ def rank_genes_groups_by_cov(
         return gene_dict
 
     
-def get_DE_genes(adata):
+def get_DE_genes(adata, skip_calc_de):
     adata.obs.loc[:, 'dose_val'] = adata.obs.condition.apply(lambda x: '1+1' if len(x.split('+')) == 2 else '1')
     adata.obs.loc[:, 'control'] = adata.obs.condition.apply(lambda x: 0 if len(x.split('+')) == 2 else 1)
     adata.obs.loc[:, 'condition_name'] =  adata.obs.apply(lambda x: '_'.join([x.cell_type, x.condition, x.dose_val]), axis = 1) 
-    rank_genes_groups_by_cov(adata, 
+    
+    adata.obs = adata.obs.astype('category')
+    if not skip_calc_de:
+        rank_genes_groups_by_cov(adata, 
                          groupby='condition_name', 
                          covariate='cell_type', 
                          control_group='ctrl_1', 

@@ -157,12 +157,20 @@ class GeneSimNetwork():
         importance = np.array([edge_attr[e] for e in self.G.edges])
         self.edge_weight = torch.Tensor(importance)
 
-def get_similarity_network(network_type, adata, threshold, k, gene_list, data_path, data_name, split, seed, train_gene_set_size, set2conditions):
+def get_similarity_network(network_type, adata, threshold, k, gene_list, data_path, data_name, split, seed, train_gene_set_size, set2conditions, gi_go = False, dataset = None):
     
     if network_type == 'co-express':
         df_out = get_coexpression_network_from_train(adata, threshold, k, data_path, data_name, split, seed, train_gene_set_size, set2conditions)
     elif network_type == 'go':
-        df_jaccard = get_go_auto(gene_list, data_path, data_name)
+        #df_jaccard = get_go_auto(gene_list, data_path, data_name)
+        if gi_go:
+            df_jaccard = pd.read_csv('/dfs/user/kexinh/gears2/go_essential_gi.csv')
+        else:
+            df_jaccard = pd.read_csv('/dfs/user/kexinh/gears2/go_essential_all.csv')
+            
+        if dataset is not None:
+            df_jaccard = pd.read_csv(dataset)
+            
         df_out = df_jaccard.groupby('target').apply(lambda x: x.nlargest(k + 1,['importance'])).reset_index(drop = True)
 
     return df_out
@@ -200,7 +208,19 @@ def get_coexpression_network_from_train(adata, threshold, k, data_path, data_nam
         df_co_expression.to_csv(fname, index = False)
         return df_co_expression
     
-
+def filter_pert_in_go(condition, pert_names):
+    if condition == 'ctrl':
+        return True
+    else:
+        cond1 = condition.split('+')[0]
+        cond2 = condition.split('+')[1]
+        num_ctrl = (cond1 == 'ctrl') + (cond2 == 'ctrl')
+        num_in_perts = (cond1 in pert_names) + (cond2 in pert_names)
+        if num_ctrl + num_in_perts == 2:
+            return True
+        else:
+            return False
+        
 def uncertainty_loss_fct(pred, logvar, y, perts, reg = 0.1, ctrl = None, direction_lambda = 1e-3, dict_filter = None):
     gamma = 2                     
     perts = np.array(perts)
@@ -267,12 +287,13 @@ def print_sys(s):
 def create_cell_graph_for_prediction(X, pert_idx, pert_gene):
 
     # If perturbations will be represented as node features
-    pert_feats = np.zeros(len(X))
-    for p in pert_idx:
-        pert_feats[int(np.abs(p))] = np.sign(p)
-    feature_mat = torch.Tensor(np.vstack([X, pert_feats])).T
-
-    return Data(x=feature_mat, pert=pert_gene)
+    #pert_feats = np.zeros(len(X))
+    #for p in pert_idx:
+    #    pert_feats[int(np.abs(p))] = np.sign(p)
+    #feature_mat = torch.Tensor(np.vstack([X, pert_feats])).T
+    if pert_idx is None:
+        pert_idx = [-1]
+    return Data(x=torch.Tensor(X).T, pert_idx = pert_idx, pert=pert_gene)
     
 
 def create_cell_graph_dataset_for_prediction(pert_gene, ctrl_adata, gene_names, device, num_samples = 300):

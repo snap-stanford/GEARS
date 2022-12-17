@@ -7,20 +7,40 @@ import os
 import scanpy as sc
 import networkx as nx
 from tqdm import tqdm
+import pandas as pd
 
 import warnings
 warnings.filterwarnings("ignore")
 sc.settings.verbosity = 0
 
 from .data_utils import get_DE_genes, get_dropout_non_zero_genes, DataSplitter
-from .utils import print_sys, zip_data_download_wrapper
+from .utils import print_sys, zip_data_download_wrapper, dataverse_download, filter_pert_in_go
 
 class PertData:
     
-    def __init__(self, data_path):
+    def __init__(self, data_path, gi_go = False, gene_path = None):
         self.data_path = data_path
         if not os.path.exists(self.data_path):
             os.mkdir(self.data_path)
+        server_path = 'https://dataverse.harvard.edu/api/access/datafile/6153417'
+        dataverse_download(server_path, os.path.join(self.data_path, 'gene2go_all.pkl'))
+        with open(os.path.join(self.data_path, 'gene2go_all.pkl'), 'rb') as f:
+            gene2go = pickle.load(f)
+        
+        self.gi_go = gi_go
+        if gene_path is not None:
+            gene_path = gene_path
+        elif self.gi_go:
+            gene_path = '/dfs/user/kexinh/gears2/data/pert_genes_gi.pkl'
+        else:
+            gene_path = '/dfs/user/kexinh/gears2/data/essential_all_data_pert_genes.pkl'
+        with open(gene_path, 'rb') as f:
+            essential_genes = pickle.load(f)
+    
+        gene2go = {i: gene2go[i] for i in essential_genes if i in gene2go}
+
+        self.pert_names = np.unique(list(gene2go.keys()))
+        self.node_map_pert = {x: it for it, x in enumerate(self.pert_names)}
             
     def load(self, data_name = None, 
              data_path = None):
@@ -47,6 +67,12 @@ class PertData:
         else:
             raise ValueError("data is either Norman/Adamson/Dixit or a path to an h5ad file")
         
+        print_sys('These perturbations are not in the GO graph and is thus not able to make prediction for...')
+        not_in_go_pert = np.array(self.adata.obs[self.adata.obs.condition.apply(lambda x: not filter_pert_in_go(x, self.pert_names))].condition.unique())
+        print_sys(not_in_go_pert)
+        
+        filter_go = self.adata.obs[self.adata.obs.condition.apply(lambda x: filter_pert_in_go(x, self.pert_names))]
+        self.adata = self.adata[filter_go.index.values, :]
         pyg_path = os.path.join(data_path, 'data_pyg')
         if not os.path.exists(pyg_path):
             os.mkdir(pyg_path)
@@ -59,6 +85,8 @@ class PertData:
         else:
             self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
             self.gene_names = self.adata.var.gene_name
+            
+            
             print_sys("Creating pyg object for each cell in the data...")
             self.dataset_processed = self.create_dataset_file()
             print_sys("Saving new dataset pyg object at " + dataset_fname) 
@@ -66,7 +94,8 @@ class PertData:
             print_sys("Done!")
             
     def new_data_process(self, dataset_name,
-                         adata = None):
+                         adata = None,
+                         skip_calc_de = False):
         
         if 'condition' not in adata.obs.columns.values:
             raise ValueError("Please specify condition")
@@ -82,8 +111,9 @@ class PertData:
         if not os.path.exists(save_data_folder):
             os.mkdir(save_data_folder)
         self.dataset_path = save_data_folder
-        self.adata = get_DE_genes(adata)
-        self.adata = get_dropout_non_zero_genes(self.adata)
+        self.adata = get_DE_genes(adata, skip_calc_de)
+        if not skip_calc_de:
+            self.adata = get_dropout_non_zero_genes(self.adata)
         self.adata.write_h5ad(os.path.join(save_data_folder, 'perturb_processed.h5ad'))
         
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
@@ -193,7 +223,7 @@ class PertData:
             
         self.node_map = {x: it for it, x in enumerate(self.adata.var.gene_name)}
         self.gene_names = self.adata.var.gene_name
-        
+       
         # Create cell graphs
         cell_graphs = {}
         if self.split == 'no_split':
@@ -239,7 +269,7 @@ class PertData:
                 self.dataloader =  {'train_loader': train_loader,
                                     'val_loader': val_loader}
             print_sys("Done!")
-        del self.dataset_processed # clean up some memory
+        #del self.dataset_processed # clean up some memory
     
         
     def create_dataset_file(self):
@@ -250,21 +280,34 @@ class PertData:
         return dl
     
     def get_pert_idx(self, pert_category, adata_):
-        pert_idx = [np.where(p == self.gene_names)[0][0]
+        try:
+            pert_idx = [np.where(p == self.pert_names)[0][0]
                     for p in pert_category.split('+')
                     if p != 'ctrl']
+        except:
+            print(pert_category)
+            pert_idx = None
+            
         return pert_idx
 
     # Set up feature matrix and output
+        
     def create_cell_graph(self, X, y, de_idx, pert, pert_idx=None):
-        pert_feats = np.zeros(len(X[0]))
+
+        #pert_feats = np.expand_dims(pert_feats, 0)
+        #feature_mat = torch.Tensor(np.concatenate([X, pert_feats])).T
+        feature_mat = torch.Tensor(X).T
+        
+        '''
+        pert_feats = np.zeros(len(self.pert_names))
         if pert_idx is not None:
             for p in pert_idx:
                 pert_feats[int(np.abs(p))] = 1
-        pert_feats = np.expand_dims(pert_feats, 0)
-        feature_mat = torch.Tensor(np.concatenate([X, pert_feats])).T
-
-        return Data(x=feature_mat, edge_index=None, edge_attr=None,
+        pert_feats = torch.Tensor(pert_feats).T
+        '''
+        if pert_idx is None:
+            pert_idx = [-1]
+        return Data(x=feature_mat, pert_idx=pert_idx,
                     y=torch.Tensor(y), de_idx=de_idx, pert=pert)
 
     def create_cell_graph_dataset(self, split_adata, pert_category,
@@ -273,9 +316,14 @@ class PertData:
         Combine cell graphs to create a dataset of cell graphs
         """
 
-        num_de_genes = 20
+        num_de_genes = 20        
         adata_ = split_adata[split_adata.obs['condition'] == pert_category]
-        de_genes = adata_.uns['rank_genes_groups_cov_all']
+        if 'rank_genes_groups_cov_all' in adata_.uns:
+            de_genes = adata_.uns['rank_genes_groups_cov_all']
+            de = True
+        else:
+            de = False
+            num_de_genes = 1
         Xs = []
         ys = []
 
@@ -286,9 +334,11 @@ class PertData:
 
             # Store list of genes that are most differentially expressed for testing
             pert_de_category = adata_.obs['condition_name'][0]
-            de_idx = np.where(adata_.var_names.isin(
+            if de:
+                de_idx = np.where(adata_.var_names.isin(
                 np.array(de_genes[pert_de_category][:num_de_genes])))[0]
-
+            else:
+                de_idx = [-1] * num_de_genes
             for cell_z in adata_.X:
                 # Use samples from control as basal expression
                 ctrl_samples = self.ctrl_adata[np.random.randint(0,
