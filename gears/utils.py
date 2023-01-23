@@ -1,20 +1,15 @@
 import torch
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import TheilSenRegressor
-import torch.nn as nn
 import networkx as nx
 from tqdm import tqdm
 import pickle
 import sys, os
 import requests
 from torch_geometric.data import Data
-from zipfile import ZipFile 
-
-import statsmodels.api as sm
-from sklearn.linear_model import LinearRegression, TheilSenRegressor
-from dcor import distance_correlation, partial_distance_correlation
-from sklearn.metrics import r2_score
+from zipfile import ZipFile
+from sklearn.linear_model import TheilSenRegressor
+from dcor import distance_correlation
 
 def parse_single_pert(i):
     a = i.split('+')[0]
@@ -102,20 +97,26 @@ def get_go_auto(gene_list, data_path, data_name):
         edge_list = []
         for g1 in tqdm(gene2go.keys()):
             for g2 in gene2go.keys():
-                edge_list.append((g1, g2, len(np.intersect1d(gene2go[g1], gene2go[g2]))/len(np.union1d(gene2go[g1], gene2go[g2]))))
+                edge_list.append((g1, g2, len(np.intersect1d(gene2go[g1],
+                   gene2go[g2]))/len(np.union1d(gene2go[g1], gene2go[g2]))))
 
         edge_list_filter = [i for i in edge_list if i[2] > 0]
         further_filter = [i for i in edge_list if i[2] > 0.1]
-        df_edge_list = pd.DataFrame(further_filter).rename(columns = {0: 'gene1', 1: 'gene2', 2: 'score'})
+        df_edge_list = pd.DataFrame(further_filter).rename(columns = {0: 'gene1',
+                                                                      1: 'gene2',
+                                                                      2: 'score'})
 
-        df_edge_list = df_edge_list.rename(columns = {'gene1': 'source', 'gene2': 'target', 'score': 'importance'})
+        df_edge_list = df_edge_list.rename(columns = {'gene1': 'source',
+                                                      'gene2': 'target',
+                                                      'score': 'importance'})
         df_edge_list.to_csv(go_path, index = False)        
         return df_edge_list
 
 def get_go(df_gene2go):
     df_gene2go['Entry name'] = df_gene2go['Entry name'].apply(lambda x: x.split('_')[0])
     df_gene2go = df_gene2go[df_gene2go['Gene ontology IDs'].notnull()]
-    df_gene2go = df_gene2go.rename(columns = {[i for i in df_gene2go.columns.values if 'yourlist' in i][0]: 'gene_id'})
+    df_gene2go = df_gene2go.rename(columns = {[i for i in df_gene2go.columns.values
+                                            if 'yourlist' in i][0]: 'gene_id'})
     geneid2go = dict(df_gene2go[['gene_id', 'Gene ontology IDs']].values)
 
     gene2go = {}
@@ -128,13 +129,18 @@ def get_go(df_gene2go):
     edge_list = []
     for g1 in tqdm(gene2go.keys()):
         for g2 in gene2go.keys():
-            edge_list.append((g1, g2, len(np.intersect1d(gene2go[g1], gene2go[g2]))/len(np.union1d(gene2go[g1], gene2go[g2]))))
+            edge_list.append((g1, g2, len(np.intersect1d(gene2go[g1],
+                    gene2go[g2]))/len(np.union1d(gene2go[g1], gene2go[g2]))))
 
     edge_list_filter = [i for i in edge_list if i[2] > 0]
     further_filter = [i for i in edge_list if i[2] > 0.1]
-    df_edge_list = pd.DataFrame(further_filter).rename(columns = {0: 'gene1', 1: 'gene2', 2: 'score'})
+    df_edge_list = pd.DataFrame(further_filter).rename(columns = {0: 'gene1',
+                                                                  1: 'gene2',
+                                                                  2: 'score'})
 
-    df_edge_list = df_edge_list.rename(columns = {'gene1': 'source', 'gene2': 'target', 'score': 'importance'})
+    df_edge_list = df_edge_list.rename(columns = {'gene1': 'source',
+                                                  'gene2': 'target',
+                                                  'score': 'importance'})
     return df_edge_list
 
 class GeneSimNetwork():
@@ -157,12 +163,16 @@ class GeneSimNetwork():
         importance = np.array([edge_attr[e] for e in self.G.edges])
         self.edge_weight = torch.Tensor(importance)
 
-def get_similarity_network(network_type, adata, threshold, k, gene_list, data_path, data_name, split, seed, train_gene_set_size, set2conditions, gi_go = False, dataset = None):
+def get_similarity_network(network_type, adata, threshold, k, gene_list,
+                           data_path, data_name, split, seed, train_gene_set_size,
+                           set2conditions, gi_go = False, dataset = None):
     
     if network_type == 'co-express':
-        df_out = get_coexpression_network_from_train(adata, threshold, k, data_path, data_name, split, seed, train_gene_set_size, set2conditions)
+        df_out = get_coexpression_network_from_train(adata, threshold, k,
+                                                     data_path, data_name, split,
+                                                     seed, train_gene_set_size,
+                                                     set2conditions)
     elif network_type == 'go':
-        #df_jaccard = get_go_auto(gene_list, data_path, data_name)
         if gi_go:
             df_jaccard = pd.read_csv('/dfs/user/kexinh/gears2/go_essential_gi.csv')
         else:
@@ -171,13 +181,19 @@ def get_similarity_network(network_type, adata, threshold, k, gene_list, data_pa
         if dataset is not None:
             df_jaccard = pd.read_csv(dataset)
             
-        df_out = df_jaccard.groupby('target').apply(lambda x: x.nlargest(k + 1,['importance'])).reset_index(drop = True)
+        df_out = df_jaccard.groupby('target').apply(lambda x: x.nlargest(k + 1,
+                                    ['importance'])).reset_index(drop = True)
 
     return df_out
 
-def get_coexpression_network_from_train(adata, threshold, k, data_path, data_name, split, seed, train_gene_set_size, set2conditions):
+def get_coexpression_network_from_train(adata, threshold, k, data_path,
+                                        data_name, split, seed, train_gene_set_size,
+                                        set2conditions):
     
-    fname = os.path.join(os.path.join(data_path, data_name), split + '_' + str(seed) + '_' + str(train_gene_set_size) + '_' + str(threshold) + '_' + str(k) + '_co_expression_network.csv')
+    fname = os.path.join(os.path.join(data_path, data_name), split + '_'  +
+                         str(seed) + '_' + str(train_gene_set_size) + '_' +
+                         str(threshold) + '_' + str(k) +
+                         '_co_expression_network.csv')
     
     if os.path.exists(fname):
         return pd.read_csv(fname)
@@ -204,7 +220,9 @@ def get_coexpression_network_from_train(adata, threshold, k, data_path, data_nam
                 df_g.append((idx2gene[out_sort_idx[i, j]], target, out_sort_val[i, j]))
 
         df_g = [i for i in df_g if i[2] > threshold]
-        df_co_expression = pd.DataFrame(df_g).rename(columns = {0: 'source', 1: 'target', 2: 'importance'})
+        df_co_expression = pd.DataFrame(df_g).rename(columns = {0: 'source',
+                                                                1: 'target',
+                                                                2: 'importance'})
         df_co_expression.to_csv(fname, index = False)
         return df_co_expression
     
@@ -221,7 +239,8 @@ def filter_pert_in_go(condition, pert_names):
         else:
             return False
         
-def uncertainty_loss_fct(pred, logvar, y, perts, reg = 0.1, ctrl = None, direction_lambda = 1e-3, dict_filter = None):
+def uncertainty_loss_fct(pred, logvar, y, perts, reg = 0.1, ctrl = None,
+                         direction_lambda = 1e-3, dict_filter = None):
     gamma = 2                     
     perts = np.array(perts)
     losses = torch.tensor(0.0, requires_grad=True).to(pred.device)
@@ -237,13 +256,20 @@ def uncertainty_loss_fct(pred, logvar, y, perts, reg = 0.1, ctrl = None, directi
             logvar_p = logvar[np.where(perts==p)[0]]
                          
         # uncertainty based loss
-        losses += torch.sum((pred_p - y_p)**(2 + gamma) + reg * torch.exp(-logvar_p) * (pred_p - y_p)**(2 + gamma))/pred_p.shape[0]/pred_p.shape[1]
+        losses += torch.sum((pred_p - y_p)**(2 + gamma) + reg * torch.exp(
+            -logvar_p)  * (pred_p - y_p)**(2 + gamma))/pred_p.shape[0]/pred_p.shape[1]
                          
         # direction loss                 
         if p!= 'ctrl':
-            losses += torch.sum(direction_lambda * (torch.sign(y_p - ctrl[retain_idx]) - torch.sign(pred_p - ctrl[retain_idx]))**2)/pred_p.shape[0]/pred_p.shape[1]
+            losses += torch.sum(direction_lambda *
+                                (torch.sign(y_p - ctrl[retain_idx]) -
+                                 torch.sign(pred_p - ctrl[retain_idx]))**2)/\
+                                 pred_p.shape[0]/pred_p.shape[1]
         else:
-            losses += torch.sum(direction_lambda * (torch.sign(y_p - ctrl) - torch.sign(pred_p - ctrl))**2)/pred_p.shape[0]/pred_p.shape[1]
+            losses += torch.sum(direction_lambda *
+                                (torch.sign(y_p - ctrl) -
+                                 torch.sign(pred_p - ctrl))**2)/\
+                                 pred_p.shape[0]/pred_p.shape[1]
             
     return losses/(len(set(perts)))
 
@@ -257,7 +283,8 @@ def loss_fct(pred, y, perts, ctrl = None, direction_lambda = 1e-3, dict_filter =
     for p in set(perts):
         pert_idx = np.where(perts == p)[0]
         
-        # during training, we remove the all zero genes into calculation of loss. this gives a cleaner direction loss. empirically, the performance stays the same.
+        # during training, we remove the all zero genes into calculation of loss.
+        # this gives a cleaner direction loss. empirically, the performance stays the same.
         if p!= 'ctrl':
             retain_idx = dict_filter[p]
             pred_p = pred[pert_idx][:, retain_idx]
@@ -265,14 +292,19 @@ def loss_fct(pred, y, perts, ctrl = None, direction_lambda = 1e-3, dict_filter =
         else:
             pred_p = pred[pert_idx]
             y_p = y[pert_idx]
-        
-        losses += torch.sum((pred_p - y_p)**(2 + gamma))/pred_p.shape[0]/pred_p.shape[1]
+        losses += torch.sum((torch.mean(pred_p, 0) - y_p)**(2+gamma))/pred_p.shape[1]
+        #losses += torch.sum((pred_p - y_p)**(2 + gamma))/pred_p.shape[0]/pred_p.shape[1]
                          
         ## direction loss
         if (p!= 'ctrl'):
-            losses += torch.sum(direction_lambda * (torch.sign(y_p - ctrl[retain_idx]) - torch.sign(pred_p - ctrl[retain_idx]))**2)/pred_p.shape[0]/pred_p.shape[1]
+            losses += torch.sum(direction_lambda *
+                                (torch.sign(y_p - ctrl[retain_idx]) -
+                                 torch.sign(pred_p - ctrl[retain_idx]))**2)/\
+                                 pred_p.shape[0]/pred_p.shape[1]
         else:
-            losses += torch.sum(direction_lambda * (torch.sign(y_p - ctrl) - torch.sign(pred_p - ctrl))**2)/pred_p.shape[0]/pred_p.shape[1]
+            losses += torch.sum(direction_lambda * (torch.sign(y_p - ctrl) -
+                                                torch.sign(pred_p - ctrl))**2)/\
+                                                pred_p.shape[0]/pred_p.shape[1]
     return losses/(len(set(perts)))
 
 
@@ -286,18 +318,14 @@ def print_sys(s):
     
 def create_cell_graph_for_prediction(X, pert_idx, pert_gene):
 
-    # If perturbations will be represented as node features
-    #pert_feats = np.zeros(len(X))
-    #for p in pert_idx:
-    #    pert_feats[int(np.abs(p))] = np.sign(p)
-    #feature_mat = torch.Tensor(np.vstack([X, pert_feats])).T
     if pert_idx is None:
         pert_idx = [-1]
     return Data(x=torch.Tensor(X).T, pert_idx = pert_idx, pert=pert_gene)
     
 
-def create_cell_graph_dataset_for_prediction(pert_gene, ctrl_adata, gene_names, device, num_samples = 300):
-    Xs = []
+def create_cell_graph_dataset_for_prediction(pert_gene, ctrl_adata, gene_names,
+                                             device, num_samples = 300):
+
     # Get the indices (and signs) of applied perturbation
     pert_idx = [np.where(p == np.array(gene_names))[0][0] for p in pert_gene]
 
