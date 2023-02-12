@@ -19,6 +19,8 @@ from .utils import print_sys, zip_data_download_wrapper, dataverse_download, fil
 class PertData:
     
     def __init__(self, data_path, gi_go = False, gene_path = None):
+        
+        self.gi_go = gi_go
         self.data_path = data_path
         if not os.path.exists(self.data_path):
             os.mkdir(self.data_path)
@@ -27,13 +29,15 @@ class PertData:
         with open(os.path.join(self.data_path, 'gene2go_all.pkl'), 'rb') as f:
             gene2go = pickle.load(f)
         
-        self.gi_go = gi_go
         if gene_path is not None:
+            # If gene set specified for GO graph, use that
             gene_path = gene_path
-        elif self.gi_go:
-            gene_path = '/dfs/user/kexinh/gears2/data/pert_genes_gi.pkl'
         else:
-            gene_path = '/dfs/user/kexinh/gears2/data/essential_all_data_pert_genes.pkl'
+            breakpoint()
+            # Otherwise, use a large set of genes to create GO
+            server_path = 'https://dataverse.harvard.edu/api/access/datafile/6934320'
+            gene_path = os.path.join(self.data_path, 'essential_all_data_pert_genes.pkl')
+            dataverse_download(server_path, gene_path)
         with open(gene_path, 'rb') as f:
             essential_genes = pickle.load(f)
     
