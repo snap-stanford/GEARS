@@ -293,16 +293,16 @@ def loss_fct(pred, y, perts, ctrl = None, direction_lambda = 1e-3, dict_filter =
             pred_p = pred[pert_idx]
             y_p = y[pert_idx]
         #losses += torch.sum((torch.mean(pred_p, 0) - y_p)**(2+gamma))/pred_p.shape[1]
-        losses += torch.sum((pred_p - y_p)**(2 + gamma))/pred_p.shape[0]/pred_p.shape[1]
+        losses = losses + torch.sum((pred_p - y_p)**(2 + gamma))/pred_p.shape[0]/pred_p.shape[1]
                          
         ## direction loss
         if (p!= 'ctrl'):
-            losses += torch.sum(direction_lambda *
+            losses = losses + torch.sum(direction_lambda *
                                 (torch.sign(y_p - ctrl[retain_idx]) -
                                  torch.sign(pred_p - ctrl[retain_idx]))**2)/\
                                  pred_p.shape[0]/pred_p.shape[1]
         else:
-            losses += torch.sum(direction_lambda * (torch.sign(y_p - ctrl) -
+            losses = losses + torch.sum(direction_lambda * (torch.sign(y_p - ctrl) -
                                                 torch.sign(pred_p - ctrl))**2)/\
                                                 pred_p.shape[0]/pred_p.shape[1]
     return losses/(len(set(perts)))
