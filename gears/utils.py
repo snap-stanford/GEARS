@@ -8,6 +8,7 @@ import sys, os
 import requests
 from torch_geometric.data import Data
 from zipfile import ZipFile
+import tarfile
 from sklearn.linear_model import TheilSenRegressor
 from dcor import distance_correlation
 
@@ -78,6 +79,17 @@ def zip_data_download_wrapper(url, save_path, data_path):
         print_sys('Extracting zip file...')
         with ZipFile((save_path + '.zip'), 'r') as zip:
             zip.extractall(path = data_path)
+        print_sys("Done!")  
+        
+def tar_data_download_wrapper(url, save_path, data_path):
+
+    if os.path.exists(save_path):
+        print_sys('Found local copy...')
+    else:
+        dataverse_download(url, save_path + '.tar.gz')
+        print_sys('Extracting tar file...')
+        with tarfile.open(save_path  + '.tar.gz') as tar:
+            tar.extractall(path= data_path)
         print_sys("Done!")  
         
 def get_go_auto(gene_list, data_path, data_name):
@@ -173,13 +185,16 @@ def get_similarity_network(network_type, adata, threshold, k, gene_list,
                                                      seed, train_gene_set_size,
                                                      set2conditions)
     elif network_type == 'go':
-        if gi_go:
-            df_jaccard = pd.read_csv('/dfs/user/kexinh/gears2/go_essential_gi.csv')
-        else:
-            df_jaccard = pd.read_csv('/dfs/user/kexinh/gears2/go_essential_all.csv')
-            
+        breakpoint()
         if dataset is not None:
             df_jaccard = pd.read_csv(dataset)
+        else:
+            server_path = 'https://dataverse.harvard.edu/api/access/datafile/6934319'
+            tar_data_download_wrapper(server_path, 
+                                     os.path.join(data_path, 'go_essential_all'),
+                                     data_path)
+            df_jaccard = pd.read_csv(os.path.join(data_path, 
+                                     'go_essential_all/go_essential_all.csv'))
             
         df_out = df_jaccard.groupby('target').apply(lambda x: x.nlargest(k + 1,
                                     ['importance'])).reset_index(drop = True)
