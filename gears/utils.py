@@ -185,7 +185,6 @@ def get_similarity_network(network_type, adata, threshold, k, gene_list,
                                                      seed, train_gene_set_size,
                                                      set2conditions)
     elif network_type == 'go':
-        breakpoint()
         if dataset is not None:
             df_jaccard = pd.read_csv(dataset)
         else:
