@@ -33,7 +33,6 @@ class PertData:
             # If gene set specified for GO graph, use that
             gene_path = gene_path
         else:
-            breakpoint()
             # Otherwise, use a large set of genes to create GO
             server_path = 'https://dataverse.harvard.edu/api/access/datafile/6934320'
             gene_path = os.path.join(self.data_path, 'essential_all_data_pert_genes.pkl')
