@@ -281,7 +281,9 @@ class GEARS:
         de_idx = [gene2idx[gene_raw2id[i]] for i in adata.uns['top_non_dropout_de_20'][cond2name[query]]]
         genes = [gene_raw2id[i] for i in adata.uns['top_non_dropout_de_20'][cond2name[query]]]
         truth = adata[adata.obs.condition == query].X.toarray()[:, de_idx]
-        pred = self.predict([query.split('+')])['_'.join(query.split('+'))][de_idx]
+        
+        query_ = [q for q in query.split('+') if q != 'ctrl']
+        pred = self.predict([query_])['_'.join(query_)][de_idx]
         ctrl_means = adata[adata.obs['condition'] == 'ctrl'].to_df().mean()[de_idx].values
         
         pred = pred - ctrl_means
