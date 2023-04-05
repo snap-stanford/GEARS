@@ -11,6 +11,8 @@ from zipfile import ZipFile
 import tarfile
 from sklearn.linear_model import TheilSenRegressor
 from dcor import distance_correlation
+from multiprocessing import Pool
+from functools import partial
 
 def parse_single_pert(i):
     a = i.split('+')[0]
@@ -175,9 +177,50 @@ class GeneSimNetwork():
         importance = np.array([edge_attr[e] for e in self.G.edges])
         self.edge_weight = torch.Tensor(importance)
 
-def get_similarity_network(network_type, adata, threshold, k, gene_list,
+def get_GO_edge_list(args):
+    g1, gene2go = args
+    edge_list = []
+    for g2 in gene2go.keys():
+        score = len(gene2go[g1].intersection(gene2go[g2])) / len(
+            gene2go[g1].union(gene2go[g2]))
+        if score > 0.1:
+            edge_list.append((g1, g2, score))
+    return edge_list
+        
+def make_GO(data_path, pert_list, data_name, num_workers=25, save=True):
+    """
+    Creates Gene Ontology graph from a custom set of genes
+    """
+
+    fname = './data/go_essential_' + data_name + '.csv'
+    if os.path.exists(fname):
+        return pd.read_csv(fname)
+
+    with open(os.path.join(data_path, 'gene2go_all.pkl'), 'rb') as f:
+        gene2go = pickle.load(f)
+    gene2go = {i: gene2go[i] for i in pert_list}
+
+    print('Creating custom GO graph, this can take a few minutes')
+    with Pool(num_workers) as p:
+        all_edge_list = list(
+            tqdm(p.imap(get_GO_edge_list, ((g, gene2go) for g in gene2go.keys())),
+                      total=len(gene2go.keys())))
+    edge_list = []
+    for i in all_edge_list:
+        edge_list = edge_list + i
+
+    df_edge_list = pd.DataFrame(edge_list).rename(
+        columns={0: 'source', 1: 'target', 2: 'importance'})
+    
+    if save:
+        print('Saving edge_list to file')
+        df_edge_list.to_csv(fname, index=False)
+
+    return df_edge_list
+
+def get_similarity_network(network_type, adata, threshold, k,
                            data_path, data_name, split, seed, train_gene_set_size,
-                           set2conditions, gi_go = False, dataset = None):
+                           set2conditions, default_GO_graph=True, pert_list=None):
     
     if network_type == 'co-express':
         df_out = get_coexpression_network_from_train(adata, threshold, k,
@@ -185,16 +228,17 @@ def get_similarity_network(network_type, adata, threshold, k, gene_list,
                                                      seed, train_gene_set_size,
                                                      set2conditions)
     elif network_type == 'go':
-        if dataset is not None:
-            df_jaccard = pd.read_csv(dataset)
-        else:
+        if default_GO_graph:
             server_path = 'https://dataverse.harvard.edu/api/access/datafile/6934319'
             tar_data_download_wrapper(server_path, 
                                      os.path.join(data_path, 'go_essential_all'),
                                      data_path)
             df_jaccard = pd.read_csv(os.path.join(data_path, 
                                      'go_essential_all/go_essential_all.csv'))
-            
+
+        else:
+            df_jaccard = make_GO(data_path, pert_list, data_name)
+
         df_out = df_jaccard.groupby('target').apply(lambda x: x.nlargest(k + 1,
                                     ['importance'])).reset_index(drop = True)
 

@@ -18,26 +18,44 @@ from .utils import print_sys, zip_data_download_wrapper, dataverse_download, fil
 
 class PertData:
     
-    def __init__(self, data_path, gi_go = False, gene_path = None):
+    def __init__(self, data_path, gene_set_path = None):
         
-        self.gi_go = gi_go
+        # Dataset/Dataloader attributes
         self.data_path = data_path
+        self.default_GO_graph = True
+        self.dataset_name = None
+        self.dataset_path = None
+        self.adata = None
+        self.dataset_processed = None
+        self.ctrl_adata = None
+        self.gene_names = []
+        self.node_map = {}
+
+        # Split attributes
+        self.split = None
+        self.seed = None
+        self.subgroup = None
+        self.train_gene_set_size = None
+
         if not os.path.exists(self.data_path):
             os.mkdir(self.data_path)
         server_path = 'https://dataverse.harvard.edu/api/access/datafile/6153417'
-        dataverse_download(server_path, os.path.join(self.data_path, 'gene2go_all.pkl'))
+        dataverse_download(server_path,
+                           os.path.join(self.data_path, 'gene2go_all.pkl'))
         with open(os.path.join(self.data_path, 'gene2go_all.pkl'), 'rb') as f:
             gene2go = pickle.load(f)
         
-        if gene_path is not None:
+        if gene_set_path is not None:
             # If gene set specified for GO graph, use that
-            gene_path = gene_path
+            gene_set_path = gene_set_path
+            self.default_GO_graph = False
         else:
             # Otherwise, use a large set of genes to create GO
             server_path = 'https://dataverse.harvard.edu/api/access/datafile/6934320'
-            gene_path = os.path.join(self.data_path, 'essential_all_data_pert_genes.pkl')
-            dataverse_download(server_path, gene_path)
-        with open(gene_path, 'rb') as f:
+            gene_set_path = os.path.join(self.data_path,
+                                     'essential_all_data_pert_genes.pkl')
+            dataverse_download(server_path, gene_set_path)
+        with open(gene_set_path, 'rb') as f:
             essential_genes = pickle.load(f)
     
         gene2go = {i: gene2go[i] for i in essential_genes if i in gene2go}
@@ -45,8 +63,7 @@ class PertData:
         self.pert_names = np.unique(list(gene2go.keys()))
         self.node_map_pert = {x: it for it, x in enumerate(self.pert_names)}
             
-    def load(self, data_name = None, 
-             data_path = None):
+    def load(self, data_name = None, data_path = None):
         if data_name in ['norman', 'adamson', 'dixit']:
             ## load from harvard dataverse
             if data_name == 'norman':
@@ -68,13 +85,19 @@ class PertData:
             self.dataset_name = data_path.split('/')[-1]
             self.dataset_path = data_path
         else:
-            raise ValueError("data is either Norman/Adamson/Dixit or a path to an h5ad file")
+            raise ValueError("data attribute is either Norman/Adamson/Dixit "
+                             "or a path to an h5ad file")
         
-        print_sys('These perturbations are not in the GO graph and is thus not able to make prediction for...')
-        not_in_go_pert = np.array(self.adata.obs[self.adata.obs.condition.apply(lambda x: not filter_pert_in_go(x, self.pert_names))].condition.unique())
+        print_sys('These perturbations are not in the GO graph and their '
+                  'perturbation can thus not be predicted')
+        not_in_go_pert = np.array(self.adata.obs[
+                                  self.adata.obs.condition.apply(
+                                  lambda x:not filter_pert_in_go(x,
+                                        self.pert_names))].condition.unique())
         print_sys(not_in_go_pert)
         
-        filter_go = self.adata.obs[self.adata.obs.condition.apply(lambda x: filter_pert_in_go(x, self.pert_names))]
+        filter_go = self.adata.obs[self.adata.obs.condition.apply(
+                              lambda x: filter_pert_in_go(x, self.pert_names))]
         self.adata = self.adata[filter_go.index.values, :]
         pyg_path = os.path.join(data_path, 'data_pyg')
         if not os.path.exists(pyg_path):
@@ -139,8 +162,9 @@ class PertData:
                       test_perts = None,
                       only_test_set_perts = False,
                       test_pert_genes = None):
-        available_splits = ['simulation', 'simulation_single', 'combo_seen0', 'combo_seen1', 
-                            'combo_seen2', 'single', 'no_test', 'no_split']
+        available_splits = ['simulation', 'simulation_single', 'combo_seen0',
+                            'combo_seen1', 'combo_seen2', 'single', 'no_test',
+                            'no_split']
         if split not in available_splits:
             raise ValueError('currently, we only support ' + ','.join(available_splits))
         self.split = split
@@ -151,7 +175,8 @@ class PertData:
         split_folder = os.path.join(self.dataset_path, 'splits')
         if not os.path.exists(split_folder):
             os.mkdir(split_folder)
-        split_file = self.dataset_name + '_' + split + '_' + str(seed) + '_' + str(train_gene_set_size) + '.pkl'
+        split_file = self.dataset_name + '_' + split + '_' + str(seed) + '_' \
+                                       +  str(train_gene_set_size) + '.pkl'
         split_path = os.path.join(split_folder, split_file)
         
         if test_perts:
@@ -197,17 +222,20 @@ class PertData:
             
             elif split == 'single':
                 DS = DataSplitter(self.adata, split_type=split)
-                adata = DS.split_data(test_size=combo_single_split_test_set_fraction, seed=seed)
+                adata = DS.split_data(test_size=combo_single_split_test_set_fraction,
+                                      seed=seed)
             
             elif split == 'no_test':
                 DS = DataSplitter(self.adata, split_type=split)
-                adata = DS.split_data(test_size=combo_single_split_test_set_fraction, seed=seed)
+                adata = DS.split_data(test_size=combo_single_split_test_set_fraction,
+                                      seed=seed)
             
             elif split == 'no_split':          
                 adata = self.adata
                 adata.obs['split'] = 'test'
             
-            set2conditions = dict(adata.obs.groupby('split').agg({'condition': lambda x: x}).condition)
+            set2conditions = dict(adata.obs.groupby('split').agg({'condition':
+                                                        lambda x: x}).condition)
             set2conditions = {i: j.unique().tolist() for i,j in set2conditions.items()} 
             pickle.dump(set2conditions, open(split_path, "wb"))
             print_sys("Saving new splits at " + split_path)

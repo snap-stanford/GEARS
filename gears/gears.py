@@ -57,26 +57,31 @@ class GEARS:
         self.train_gene_set_size = pert_data.train_gene_set_size
         self.set2conditions = pert_data.set2conditions
         self.subgroup = pert_data.subgroup
-        self.gi_go = pert_data.gi_go
         self.gi_predict = gi_predict
         self.gene_list = pert_data.gene_names.values.tolist()
         self.pert_list = pert_data.pert_names.tolist()
         self.num_genes = len(self.gene_list)
         self.num_perts = len(self.pert_list)
+        self.default_GO_graph = pert_data.default_GO_graph
         self.saved_pred = {}
         self.saved_logvar_sum = {}
         
-        self.ctrl_expression = torch.tensor(np.mean(self.adata.X[self.adata.obs.condition == 'ctrl'], axis = 0)).reshape(-1,).to(self.device)
+        self.ctrl_expression = torch.tensor(
+            np.mean(self.adata.X[self.adata.obs.condition == 'ctrl'],
+                    axis=0)).reshape(-1, ).to(self.device)
         pert_full_id2pert = dict(self.adata.obs[['condition_name', 'condition']].values)
         if gi_predict:
             self.dict_filter = None
         else:
-            self.dict_filter = {pert_full_id2pert[i]: j for i,j in self.adata.uns['non_zeros_gene_idx'].items() if i in pert_full_id2pert}
+            self.dict_filter = {pert_full_id2pert[i]: j for i, j in
+                                self.adata.uns['non_zeros_gene_idx'].items() if
+                                i in pert_full_id2pert}
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
         
         gene_dict = {g:i for i,g in enumerate(self.gene_list)}
-        self.pert2gene = {p:gene_dict[pert] for p, pert in enumerate(self.pert_list) if pert in self.gene_list}
-        
+        self.pert2gene = {p: gene_dict[pert] for p, pert in
+                          enumerate(self.pert_list) if pert in self.gene_list}
+
     def tunable_parameters(self):
         return {'hidden_size': 'hidden dimension, default 64',
                 'num_go_gnn_layers': 'number of GNN layers for GO graph, default 1',
@@ -106,8 +111,6 @@ class GEARS:
                          G_coexpress_weight = None,
                          no_perturb = False, 
                          cell_fitness_pred = False,
-                         go_path = None,
-                         #pert2gene = None
                         ):
         
         self.config = {'hidden_size': hidden_size,
@@ -129,7 +132,6 @@ class GEARS:
                        'num_perts': self.num_perts,
                        'no_perturb': no_perturb,
                        'cell_fitness_pred': cell_fitness_pred,
-                       #'pert2gene': self.pert2gene
                       }
         
         if self.wandb:
@@ -137,14 +139,34 @@ class GEARS:
         
         if self.config['G_coexpress'] is None:
             ## calculating co expression similarity graph
-            edge_list = get_similarity_network(network_type = 'co-express', adata = self.adata, threshold = coexpress_threshold, k = num_similar_genes_co_express_graph, gene_list = self.gene_list, data_path = self.data_path, data_name = self.dataset_name, split = self.split, seed = self.seed, train_gene_set_size = self.train_gene_set_size, set2conditions = self.set2conditions)
+            edge_list = get_similarity_network(network_type='co-express',
+                                               adata=self.adata,
+                                               threshold=coexpress_threshold,
+                                               k=num_similar_genes_co_express_graph,
+                                               data_path=self.data_path,
+                                               data_name=self.dataset_name,
+                                               split=self.split, seed=self.seed,
+                                               train_gene_set_size=self.train_gene_set_size,
+                                               set2conditions=self.set2conditions)
+
             sim_network = GeneSimNetwork(edge_list, self.gene_list, node_map = self.node_map)
             self.config['G_coexpress'] = sim_network.edge_index
             self.config['G_coexpress_weight'] = sim_network.edge_weight
         
         if self.config['G_go'] is None:
             ## calculating gene ontology similarity graph
-            edge_list = get_similarity_network(network_type = 'go', adata = self.adata, threshold = coexpress_threshold, k = num_similar_genes_go_graph, gene_list = self.pert_list, data_path = self.data_path, data_name = self.dataset_name, split = self.split, seed = self.seed, train_gene_set_size = self.train_gene_set_size, set2conditions = self.set2conditions, gi_go = self.gi_go, dataset = go_path)
+            edge_list = get_similarity_network(network_type='go',
+                                               adata=self.adata,
+                                               threshold=coexpress_threshold,
+                                               k=num_similar_genes_go_graph,
+                                               pert_list=self.pert_list,
+                                               data_path=self.data_path,
+                                               data_name=self.dataset_name,
+                                               split=self.split, seed=self.seed,
+                                               train_gene_set_size=self.train_gene_set_size,
+                                               set2conditions=self.set2conditions,
+                                               default_GO_graph=self.default_GO_graph)
+
             sim_network = GeneSimNetwork(edge_list, self.pert_list, node_map = self.node_map_pert)
             self.config['G_go'] = sim_network.edge_index
             self.config['G_go_weight'] = sim_network.edge_weight
@@ -194,7 +216,8 @@ class GEARS:
         for pert in pert_list:
             for i in pert:
                 if i not in self.pert_list:
-                    raise ValueError(i+ " not in the perturbation graph. Please select from PertNet.gene_list!")
+                    raise ValueError(i+ " is not in the perturbation graph. "
+                                        "Please select from GEARS.gene_list!")
         
         if self.config['uncertainty']:
             results_logvar = {}
@@ -215,7 +238,8 @@ class GEARS:
             except:
                 pass
             
-            cg = create_cell_graph_dataset_for_prediction(pert, self.ctrl_adata, self.pert_list, self.device)
+            cg = create_cell_graph_dataset_for_prediction(pert, self.ctrl_adata,
+                                                    self.pert_list, self.device)
             loader = DataLoader(cg, 300, shuffle = False)
             batch = next(iter(loader))
             batch.to(self.device)
@@ -277,15 +301,18 @@ class GEARS:
         gene2idx = self.node_map
         cond2name = dict(adata.obs[['condition', 'condition_name']].values)
         gene_raw2id = dict(zip(adata.var.index.values, adata.var.gene_name.values))
-        
-        de_idx = [gene2idx[gene_raw2id[i]] for i in adata.uns['top_non_dropout_de_20'][cond2name[query]]]
-        genes = [gene_raw2id[i] for i in adata.uns['top_non_dropout_de_20'][cond2name[query]]]
+
+        de_idx = [gene2idx[gene_raw2id[i]] for i in
+                  adata.uns['top_non_dropout_de_20'][cond2name[query]]]
+        genes = [gene_raw2id[i] for i in
+                 adata.uns['top_non_dropout_de_20'][cond2name[query]]]
         truth = adata[adata.obs.condition == query].X.toarray()[:, de_idx]
         
         query_ = [q for q in query.split('+') if q != 'ctrl']
         pred = self.predict([query_])['_'.join(query_)][de_idx]
-        ctrl_means = adata[adata.obs['condition'] == 'ctrl'].to_df().mean()[de_idx].values
-        
+        ctrl_means = adata[adata.obs['condition'] == 'ctrl'].to_df().mean()[
+            de_idx].values
+
         pred = pred - ctrl_means
         truth = truth - ctrl_means
         
@@ -361,8 +388,10 @@ class GEARS:
 
             scheduler.step()
             # Evaluate model performance on train and val set
-            train_res = evaluate(train_loader, self.model, self.config['uncertainty'], self.device)
-            val_res = evaluate(val_loader, self.model, self.config['uncertainty'], self.device)
+            train_res = evaluate(train_loader, self.model,
+                                 self.config['uncertainty'], self.device)
+            val_res = evaluate(val_loader, self.model,
+                                 self.config['uncertainty'], self.device)
             train_metrics, _ = compute_metrics(train_res)
             val_metrics, _ = compute_metrics(val_res)
 
@@ -400,7 +429,8 @@ class GEARS:
         # Model testing
         test_loader = self.dataloader['test_loader']
         print_sys("Start Testing...")
-        test_res = evaluate(test_loader, self.best_model, self.config['uncertainty'], self.device)   
+        test_res = evaluate(test_loader, self.best_model,
+                            self.config['uncertainty'], self.device)
         test_metrics, test_pert_res = compute_metrics(test_res)    
         log = "Best performing model: Test Top 20 DE MSE: {:.4f}"
         print_sys(log.format(test_metrics['mse_de']))
@@ -416,7 +446,9 @@ class GEARS:
         out_non_dropout = non_dropout_analysis(self.adata, test_res)
         
         metrics = ['pearson_delta']
-        metrics_non_dropout = ['frac_opposite_direction_top20_non_dropout', 'frac_sigma_below_1_non_dropout', 'mse_top20_de_non_dropout']
+        metrics_non_dropout = ['frac_opposite_direction_top20_non_dropout',
+                               'frac_sigma_below_1_non_dropout',
+                               'mse_top20_de_non_dropout']
         
         if self.wandb:
             for m in metrics:
