@@ -36,8 +36,8 @@ gears_model.save_model('gears')
 gears_model.load_pretrained('gears')
 
 # predict
-gears_model.predict([['FOX1A', 'AHR'], ['FEV']])
-gears_model.GI_predict([['FOX1A', 'AHR'], ['FEV', 'AHR']])
+gears_model.predict([['CBL', 'CNN1'], ['FEV']])
+gears_model.GI_predict([['CBL', 'CNN1'], ['FEV', 'AHR']])
 ```
 
 To use your own dataset, create a scanpy adata object with a `gene_name` column in `adata.var`, and two columns `condition`, `cell_type` in `adata.obs`. Then run:
@@ -56,6 +56,13 @@ pert_data.load(data_path = './data/XXX')
 | [Model Tutorial](demo/model_tutorial.ipynb) | Tutorial on how to train GEARS |
 | [Plot top 20 DE genes](demo/tutorial_plot_top20_DE.ipynb) | Tutorial on how to plot the top 20 DE genes|
 | [Uncertainty](demo/tutorial_uncertainty.ipynb) | Tutorial on how to train an uncertainty-aware GEARS model |
+
+
+### Colab
+
+| Name | Description |
+|-----------------|-------------|
+| [Using Trained Model](https://colab.research.google.com/drive/11LlzGEUGoBk_Uj6DzlzizAeWse5_E9MK?usp=sharing) | Use a model trained on Norman et al. 2019 to make predictions (Needs Colab Pro)|
 
 
 
