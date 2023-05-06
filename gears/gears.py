@@ -217,7 +217,7 @@ class GEARS:
             for i in pert:
                 if i not in self.pert_list:
                     raise ValueError(i+ " is not in the perturbation graph. "
-                                        "Please select from GEARS.gene_list!")
+                                        "Please select from GEARS.pert_list!")
         
         if self.config['uncertainty']:
             results_logvar = {}
