@@ -37,7 +37,7 @@ gears_model.load_pretrained('gears')
 
 # predict
 gears_model.predict([['CBL', 'CNN1'], ['FEV']])
-gears_model.GI_predict([['CBL', 'CNN1'], ['FEV', 'AHR']])
+gears_model.GI_predict(['CBL', 'CNN1'], GI_genes_file=None)
 ```
 
 To use your own dataset, create a scanpy adata object with a `gene_name` column in `adata.var`, and two columns `condition`, `cell_type` in `adata.obs`. Then run:
