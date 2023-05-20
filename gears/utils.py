@@ -220,7 +220,7 @@ def make_GO(data_path, pert_list, data_name, num_workers=25, save=True):
 
 def get_similarity_network(network_type, adata, threshold, k,
                            data_path, data_name, split, seed, train_gene_set_size,
-                           set2conditions, default_GO_graph=True, pert_list=None):
+                           set2conditions, default_pert_graph=True, pert_list=None):
     
     if network_type == 'co-express':
         df_out = get_coexpression_network_from_train(adata, threshold, k,
@@ -228,7 +228,7 @@ def get_similarity_network(network_type, adata, threshold, k,
                                                      seed, train_gene_set_size,
                                                      set2conditions)
     elif network_type == 'go':
-        if default_GO_graph:
+        if default_pert_graph:
             server_path = 'https://dataverse.harvard.edu/api/access/datafile/6934319'
             tar_data_download_wrapper(server_path, 
                                      os.path.join(data_path, 'go_essential_all'),
@@ -441,3 +441,15 @@ def get_mean_control(adata):
     cols = adata.var.gene_name.values.astype('str')
     mean_ctrl_exp = adata[adata.obs['condition'] == 'ctrl'].to_df().mean()
     return mean_ctrl_exp
+
+def get_genes_from_perts(perts):
+    """
+    Returns list of genes involved in a given perturbation list
+    """
+
+    if type(perts) is str:
+        perts = [perts]
+    gene_list = [p.split('+') for p in np.unique(perts)]
+    gene_list = [item for sublist in gene_list for item in sublist]
+    gene_list = [g for g in gene_list if g != 'ctrl']
+    return list(np.unique(gene_list))

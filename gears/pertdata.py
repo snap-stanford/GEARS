@@ -14,15 +14,19 @@ warnings.filterwarnings("ignore")
 sc.settings.verbosity = 0
 
 from .data_utils import get_DE_genes, get_dropout_non_zero_genes, DataSplitter
-from .utils import print_sys, zip_data_download_wrapper, dataverse_download, filter_pert_in_go
+from .utils import print_sys, zip_data_download_wrapper, dataverse_download,\
+                  filter_pert_in_go, get_genes_from_perts
 
 class PertData:
     
-    def __init__(self, data_path, gene_set_path = None):
+    def __init__(self, data_path, 
+                 gene_set_path=None, 
+                 default_pert_graph=True):
         
         # Dataset/Dataloader attributes
         self.data_path = data_path
-        self.default_GO_graph = True
+        self.default_pert_graph = default_pert_graph
+        self.gene_set_path = gene_set_path
         self.dataset_name = None
         self.dataset_path = None
         self.adata = None
@@ -43,27 +47,48 @@ class PertData:
         dataverse_download(server_path,
                            os.path.join(self.data_path, 'gene2go_all.pkl'))
         with open(os.path.join(self.data_path, 'gene2go_all.pkl'), 'rb') as f:
-            gene2go = pickle.load(f)
-        
-        if gene_set_path is not None:
-            # If gene set specified for GO graph, use that
-            gene_set_path = gene_set_path
-            self.default_GO_graph = False
-        else:
-            # Otherwise, use a large set of genes to create GO
-            server_path = 'https://dataverse.harvard.edu/api/access/datafile/6934320'
-            gene_set_path = os.path.join(self.data_path,
-                                     'essential_all_data_pert_genes.pkl')
-            dataverse_download(server_path, gene_set_path)
-        with open(gene_set_path, 'rb') as f:
-            essential_genes = pickle.load(f)
+            self.gene2go = pickle.load(f)
     
-        gene2go = {i: gene2go[i] for i in essential_genes if i in gene2go}
+    def set_pert_genes(self):
+        """
+        Set the list of genes that can be perturbed and are to be included in 
+        perturbation graph
+        """
+        
+        if self.gene_set_path is not None:
+            # If gene set specified for perturbation graph, use that
+            path_ = self.gene_set_path
+            self.default_pert_graph = False
+            with open(path_, 'rb') as f:
+                essential_genes = pickle.load(f)
+            
+        elif self.default_pert_graph is False:
+            # Use a smaller perturbation graph 
+            all_pert_genes = get_genes_from_perts(self.adata.obs['condition'])
+            essential_genes = list(self.adata.var['gene_name'].values)
+            essential_genes += all_pert_genes
+            
+        else:
+            # Otherwise, use a large set of genes to create perturbation graph
+            server_path = 'https://dataverse.harvard.edu/api/access/datafile/6934320'
+            path_ = os.path.join(self.data_path,
+                                     'essential_all_data_pert_genes.pkl')
+            dataverse_download(server_path, path_)
+            with open(path_, 'rb') as f:
+                essential_genes = pickle.load(f)
+    
+        gene2go = {i: self.gene2go[i] for i in essential_genes if i in self.gene2go}
 
         self.pert_names = np.unique(list(gene2go.keys()))
         self.node_map_pert = {x: it for it, x in enumerate(self.pert_names)}
             
     def load(self, data_name = None, data_path = None):
+        """
+        Load existing dataloader
+        Use data_name for loading 'norman', 'adamson', 'dixit' datasets
+        For other datasets use data_path
+        """
+        
         if data_name in ['norman', 'adamson', 'dixit']:
             ## load from harvard dataverse
             if data_name == 'norman':
@@ -88,6 +113,7 @@ class PertData:
             raise ValueError("data attribute is either Norman/Adamson/Dixit "
                              "or a path to an h5ad file")
         
+        self.set_pert_genes()
         print_sys('These perturbations are not in the GO graph and their '
                   'perturbation can thus not be predicted')
         not_in_go_pert = np.array(self.adata.obs[
@@ -142,6 +168,7 @@ class PertData:
             self.adata = get_dropout_non_zero_genes(self.adata)
         self.adata.write_h5ad(os.path.join(save_data_folder, 'perturb_processed.h5ad'))
         
+        self.set_pert_genes()
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
         self.gene_names = self.adata.var.gene_name
         pyg_path = os.path.join(save_data_folder, 'data_pyg')

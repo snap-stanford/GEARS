@@ -62,7 +62,7 @@ class GEARS:
         self.pert_list = pert_data.pert_names.tolist()
         self.num_genes = len(self.gene_list)
         self.num_perts = len(self.pert_list)
-        self.default_GO_graph = pert_data.default_GO_graph
+        self.default_pert_graph = pert_data.default_pert_graph
         self.saved_pred = {}
         self.saved_logvar_sum = {}
         
@@ -165,7 +165,7 @@ class GEARS:
                                                split=self.split, seed=self.seed,
                                                train_gene_set_size=self.train_gene_set_size,
                                                set2conditions=self.set2conditions,
-                                               default_GO_graph=self.default_GO_graph)
+                                               default_pert_graph=self.default_pert_graph)
 
             sim_network = GeneSimNetwork(edge_list, self.pert_list, node_map = self.node_map_pert)
             self.config['G_go'] = sim_network.edge_index
