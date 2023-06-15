@@ -1,11 +1,9 @@
 from copy import deepcopy
-import argparse
-from time import time
-import sys, os
+import os
 import pickle
 
-import scanpy as sc
 import numpy as np
+import scipy
 
 import torch
 import torch.optim as optim
@@ -14,11 +12,11 @@ from torch.optim.lr_scheduler import StepLR
 
 from .model import GEARS_Model
 from .inference import evaluate, compute_metrics, deeper_analysis, \
-                  non_dropout_analysis, compute_synergy_loss
-from .utils import loss_fct, uncertainty_loss_fct, parse_any_pert, \
+                  non_dropout_analysis
+from .utils import loss_fct, uncertainty_loss_fct, \
                   get_similarity_network, print_sys, GeneSimNetwork, \
                   create_cell_graph_dataset_for_prediction, get_mean_control, \
-                  get_GI_genes_idx, get_GI_params
+                  get_GI_genes_idx, get_GI_params, rm_magnitude
 
 torch.manual_seed(0)
 
@@ -26,26 +24,26 @@ import warnings
 warnings.filterwarnings("ignore")
 
 class GEARS:
-    def __init__(self, pert_data, 
+    def __init__(self, pert_data,
                  device = 'cuda',
-                 weight_bias_track = False, 
-                 proj_name = 'GEARS', 
+                 weight_bias_track = False,
+                 proj_name = 'GEARS',
                  exp_name = 'GEARS',
                  pred_scalar = False,
                  gi_predict = False):
-        
+
         self.weight_bias_track = weight_bias_track
-        
+
         if self.weight_bias_track:
             import wandb
-            wandb.init(project=proj_name, name=exp_name)  
+            wandb.init(project=proj_name, name=exp_name)
             self.wandb = wandb
         else:
             self.wandb = None
-        
+
         self.device = device
         self.config = None
-        
+
         self.dataloader = pert_data.dataloader
         self.adata = pert_data.adata
         self.node_map = pert_data.node_map
@@ -65,7 +63,7 @@ class GEARS:
         self.default_pert_graph = pert_data.default_pert_graph
         self.saved_pred = {}
         self.saved_logvar_sum = {}
-        
+
         self.ctrl_expression = torch.tensor(
             np.mean(self.adata.X[self.adata.obs.condition == 'ctrl'],
                     axis=0)).reshape(-1, ).to(self.device)
@@ -77,7 +75,7 @@ class GEARS:
                                 self.adata.uns['non_zeros_gene_idx'].items() if
                                 i in pert_full_id2pert}
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
-        
+
         gene_dict = {g:i for i,g in enumerate(self.gene_list)}
         self.pert2gene = {p: gene_dict[pert] for p, pert in
                           enumerate(self.pert_list) if pert in self.gene_list}
@@ -94,33 +92,34 @@ class GEARS:
                 'uncertainty_reg': 'regularization term to balance uncertainty loss and prediction loss, default 1',
                 'direction_lambda': 'regularization term to balance direction loss and prediction loss, default 1'
                }
-    
+
     def model_initialize(self, hidden_size = 64,
-                         num_go_gnn_layers = 1, 
+                         num_go_gnn_layers = 1,
                          num_gene_gnn_layers = 1,
                          decoder_hidden_size = 16,
                          num_similar_genes_go_graph = 20,
-                         num_similar_genes_co_express_graph = 20,                    
+                         num_similar_genes_co_express_graph = 20,
                          coexpress_threshold = 0.4,
-                         uncertainty = False, 
+                         uncertainty = False,
                          uncertainty_reg = 1,
                          direction_lambda = 1e-1,
                          G_go = None,
                          G_go_weight = None,
                          G_coexpress = None,
                          G_coexpress_weight = None,
-                         no_perturb = False, 
+                         no_perturb = False,
                          cell_fitness_pred = False,
+                         go_path: str = None,
                         ):
-        
+
         self.config = {'hidden_size': hidden_size,
-                       'num_go_gnn_layers' : num_go_gnn_layers, 
+                       'num_go_gnn_layers' : num_go_gnn_layers,
                        'num_gene_gnn_layers' : num_gene_gnn_layers,
                        'decoder_hidden_size' : decoder_hidden_size,
                        'num_similar_genes_go_graph' : num_similar_genes_go_graph,
                        'num_similar_genes_co_express_graph' : num_similar_genes_co_express_graph,
                        'coexpress_threshold': coexpress_threshold,
-                       'uncertainty' : uncertainty, 
+                       'uncertainty' : uncertainty,
                        'uncertainty_reg' : uncertainty_reg,
                        'direction_lambda' : direction_lambda,
                        'G_go': G_go,
@@ -133,10 +132,10 @@ class GEARS:
                        'no_perturb': no_perturb,
                        'cell_fitness_pred': cell_fitness_pred,
                       }
-        
+
         if self.wandb:
             self.wandb.config.update(self.config)
-        
+
         if self.config['G_coexpress'] is None:
             ## calculating co expression similarity graph
             edge_list = get_similarity_network(network_type='co-express',
@@ -152,7 +151,7 @@ class GEARS:
             sim_network = GeneSimNetwork(edge_list, self.gene_list, node_map = self.node_map)
             self.config['G_coexpress'] = sim_network.edge_index
             self.config['G_coexpress_weight'] = sim_network.edge_weight
-        
+
         if self.config['G_go'] is None:
             ## calculating gene ontology similarity graph
             edge_list = get_similarity_network(network_type='go',
@@ -165,23 +164,24 @@ class GEARS:
                                                split=self.split, seed=self.seed,
                                                train_gene_set_size=self.train_gene_set_size,
                                                set2conditions=self.set2conditions,
-                                               default_pert_graph=self.default_pert_graph)
+                                               default_pert_graph=self.default_pert_graph,
+                                               go_path=go_path)
 
             sim_network = GeneSimNetwork(edge_list, self.pert_list, node_map = self.node_map_pert)
             self.config['G_go'] = sim_network.edge_index
             self.config['G_go_weight'] = sim_network.edge_weight
-            
+
         self.model = GEARS_Model(self.config).to(self.device)
         self.best_model = deepcopy(self.model)
-        
+
     def load_pretrained(self, path):
         with open(os.path.join(path, 'config.pkl'), 'rb') as f:
             config = pickle.load(f)
-        
+
         del config['device'], config['num_genes'], config['num_perts']
         self.model_initialize(**config)
         self.config = config
-        
+
         state_dict = torch.load(os.path.join(path, 'model.pt'), map_location = torch.device('cpu'))
         if next(iter(state_dict))[:7] == 'module.':
             # the pretrained model is from data-parallel module
@@ -191,42 +191,42 @@ class GEARS:
                 name = k[7:] # remove `module.`
                 new_state_dict[name] = v
             state_dict = new_state_dict
-        
+
         self.model.load_state_dict(state_dict)
         self.model = self.model.to(self.device)
         self.best_model = self.model
-    
+
     def save_model(self, path):
         if not os.path.exists(path):
             os.mkdir(path)
-        
+
         if self.config is None:
             raise ValueError('No model is initialized...')
-        
+
         with open(os.path.join(path, 'config.pkl'), 'wb') as f:
             pickle.dump(self.config, f)
-       
+
         torch.save(self.best_model.state_dict(), os.path.join(path, 'model.pt'))
-    
-    def predict(self, pert_list):
+
+    def predict(self, pert_list, batch_size=300, cache_results=True):
         ## given a list of single/combo genes, return the transcriptome
         ## if uncertainty mode is on, also return uncertainty score.
-        
+
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
         for pert in pert_list:
             for i in pert:
-                if i not in self.pert_list:
+                if rm_magnitude(i) not in self.pert_list:
                     raise ValueError(i+ " is not in the perturbation graph. "
                                         "Please select from GEARS.pert_list!")
-        
+
         if self.config['uncertainty']:
             results_logvar = {}
-            
+
         self.best_model = self.best_model.to(self.device)
         self.best_model.eval()
         results_pred = {}
         results_logvar_sum = {}
-        
+
         from torch_geometric.data import DataLoader
         for pert in pert_list:
             try:
@@ -237,10 +237,10 @@ class GEARS:
                 continue
             except:
                 pass
-            
+
             cg = create_cell_graph_dataset_for_prediction(pert, self.ctrl_adata,
                                                     self.pert_list, self.device)
-            loader = DataLoader(cg, 300, shuffle = False)
+            loader = DataLoader(cg, batch_size, shuffle = False)
             batch = next(iter(loader))
             batch.to(self.device)
 
@@ -251,21 +251,22 @@ class GEARS:
                     results_logvar_sum['_'.join(pert)] = np.exp(-np.mean(results_logvar['_'.join(pert)]))
                 else:
                     p = self.best_model(batch)
-                    
+
             results_pred['_'.join(pert)] = np.mean(p.detach().cpu().numpy(), axis = 0)
-                
-        self.saved_pred.update(results_pred)
-        
+
+        if cache_results:
+            self.saved_pred.update(results_pred)
+
         if self.config['uncertainty']:
             self.saved_logvar_sum.update(results_logvar_sum)
             return results_pred, results_logvar_sum
         else:
             return results_pred
-        
+
     def GI_predict(self, combo, GI_genes_file='./genes_with_hi_mean.npy'):
-        ## given a gene pair, return (1) transcriptome of A,B,A+B and (2) GI scores. 
+        ## given a gene pair, return (1) transcriptome of A,B,A+B and (2) GI scores.
         ## if uncertainty mode is on, also return uncertainty score.
-        
+
         try:
             # If prediction is already saved, then skip inference
             pred = {}
@@ -278,23 +279,22 @@ class GEARS:
             else:
                 pred = self.predict([[combo[0]], [combo[1]], combo])
 
-        mean_control = get_mean_control(self.adata).values  
-        pred = {p:pred[p]-mean_control for p in pred} 
+        mean_control = get_mean_control(self.adata).values
+        pred = {p:pred[p]-mean_control for p in pred}
 
         if GI_genes_file is not None:
             # If focussing on a specific subset of genes for calculating metrics
-            GI_genes_idx = get_GI_genes_idx(self.adata, GI_genes_file)       
+            GI_genes_idx = get_GI_genes_idx(self.adata, GI_genes_file)
         else:
             GI_genes_idx = np.arange(len(self.adata.var.gene_name.values))
-            
+
         pred = {p:pred[p][GI_genes_idx] for p in pred}
         return get_GI_params(pred, combo)
-    
+
     def plot_perturbation(self, query, save_file = None):
         import seaborn as sns
-        import numpy as np
         import matplotlib.pyplot as plt
-        
+
         sns.set_theme(style="ticks", rc={"axes.facecolor": (0, 0, 0, 0)}, font_scale=1.5)
 
         adata = self.adata
@@ -307,7 +307,7 @@ class GEARS:
         genes = [gene_raw2id[i] for i in
                  adata.uns['top_non_dropout_de_20'][cond2name[query]]]
         truth = adata[adata.obs.condition == query].X.toarray()[:, de_idx]
-        
+
         query_ = [q for q in query.split('+') if q != 'ctrl']
         pred = self.predict([query_])['_'.join(query_)][de_idx]
         ctrl_means = adata[adata.obs['condition'] == 'ctrl'].to_df().mean()[
@@ -315,11 +315,12 @@ class GEARS:
 
         pred = pred - ctrl_means
         truth = truth - ctrl_means
-        
+
         plt.figure(figsize=[16.5,4.5])
-        plt.title(query)
-        plt.boxplot(truth, showfliers=False,
-                    medianprops = dict(linewidth=0))    
+        spearmanr = scipy.stats.spearmanr(pred, truth.mean(axis=0)).statistic
+        plt.title(f"{query} (spr={spearmanr:.2f})")
+        plt.boxplot(truth, showfliers=False, showmeans=True,
+                    medianprops = dict(linewidth=0))
 
         for i in range(pred.shape[0]):
             _ = plt.scatter(i+1, pred[i], color='red')
@@ -333,20 +334,20 @@ class GEARS:
         plt.tick_params(axis='x', which='major', pad=5)
         plt.tick_params(axis='y', which='major', pad=5)
         sns.despine()
-        
+
         if save_file:
             plt.savefig(save_file, bbox_inches='tight')
         plt.show()
-    
-    
-    def train(self, epochs = 20, 
+
+
+    def train(self, epochs = 20,
               lr = 1e-3,
               weight_decay = 5e-4
              ):
-        
+
         train_loader = self.dataloader['train_loader']
         val_loader = self.dataloader['val_loader']
-            
+
         self.model = self.model.to(self.device)
         best_model = deepcopy(self.model)
         optimizer = optim.Adam(self.model.parameters(), lr=lr, weight_decay = weight_decay)
@@ -366,13 +367,13 @@ class GEARS:
                     pred, logvar = self.model(batch)
                     loss = uncertainty_loss_fct(pred, logvar, y, batch.pert,
                                       reg = self.config['uncertainty_reg'],
-                                      ctrl = self.ctrl_expression, 
+                                      ctrl = self.ctrl_expression,
                                       dict_filter = self.dict_filter,
                                       direction_lambda = self.config['direction_lambda'])
                 else:
                     pred = self.model(batch)
                     loss = loss_fct(pred, y, batch.pert,
-                                  ctrl = self.ctrl_expression, 
+                                  ctrl = self.ctrl_expression,
                                   dict_filter = self.dict_filter,
                                   direction_lambda = self.config['direction_lambda'])
                 loss.backward()
@@ -382,8 +383,8 @@ class GEARS:
                 if self.wandb:
                     self.wandb.log({'training_loss': loss.item()})
 
-                if step % 50 == 0:
-                    log = "Epoch {} Step {} Train Loss: {:.4f}" 
+                if (step + 1) % 100 == 0:
+                    log = "Epoch {} Step {} Train Loss: {:.4f}"
                     print_sys(log.format(epoch + 1, step + 1, loss.item()))
 
             scheduler.step()
@@ -398,15 +399,15 @@ class GEARS:
             # Print epoch performance
             log = "Epoch {}: Train Overall MSE: {:.4f} " \
                   "Validation Overall MSE: {:.4f}. "
-            print_sys(log.format(epoch + 1, train_metrics['mse'], 
+            print_sys(log.format(epoch + 1, train_metrics['mse'],
                              val_metrics['mse']))
-            
+
             # Print epoch performance for DE genes
             log = "Train Top 20 DE MSE: {:.4f} " \
                   "Validation Top 20 DE MSE: {:.4f}. "
             print_sys(log.format(train_metrics['mse_de'],
                              val_metrics['mse_de']))
-            
+
             if self.wandb:
                 metrics = ['mse', 'pearson']
                 for m in metrics:
@@ -414,48 +415,48 @@ class GEARS:
                                'val_'+m: val_metrics[m],
                                'train_de_' + m: train_metrics[m + '_de'],
                                'val_de_'+m: val_metrics[m + '_de']})
-               
+
             if val_metrics['mse_de'] < min_val:
                 min_val = val_metrics['mse_de']
                 best_model = deepcopy(self.model)
-                
+
         print_sys("Done!")
         self.best_model = best_model
 
         if 'test_loader' not in self.dataloader:
             print_sys('Done! No test dataloader detected.')
             return
-            
+
         # Model testing
         test_loader = self.dataloader['test_loader']
         print_sys("Start Testing...")
         test_res = evaluate(test_loader, self.best_model,
                             self.config['uncertainty'], self.device)
-        test_metrics, test_pert_res = compute_metrics(test_res)    
+        test_metrics, test_pert_res = compute_metrics(test_res)
         log = "Best performing model: Test Top 20 DE MSE: {:.4f}"
         print_sys(log.format(test_metrics['mse_de']))
-        
+
         if self.wandb:
             metrics = ['mse', 'pearson']
             for m in metrics:
                 self.wandb.log({'test_' + m: test_metrics[m],
-                           'test_de_'+m: test_metrics[m + '_de']                     
+                           'test_de_'+m: test_metrics[m + '_de']
                           })
-                
+
         out = deeper_analysis(self.adata, test_res)
         out_non_dropout = non_dropout_analysis(self.adata, test_res)
-        
+
         metrics = ['pearson_delta']
         metrics_non_dropout = ['frac_opposite_direction_top20_non_dropout',
                                'frac_sigma_below_1_non_dropout',
                                'mse_top20_de_non_dropout']
-        
+
         if self.wandb:
             for m in metrics:
                 self.wandb.log({'test_' + m: np.mean([j[m] for i,j in out.items() if m in j])})
 
             for m in metrics_non_dropout:
-                self.wandb.log({'test_' + m: np.mean([j[m] for i,j in out_non_dropout.items() if m in j])})        
+                self.wandb.log({'test_' + m: np.mean([j[m] for i,j in out_non_dropout.items() if m in j])})
 
         if self.split == 'simulation':
             print_sys("Start doing subgroup analysis for simulation split...")
@@ -473,11 +474,14 @@ class GEARS:
 
             for name, result in subgroup_analysis.items():
                 for m in result.keys():
-                    subgroup_analysis[name][m] = np.mean(subgroup_analysis[name][m])
+                    mean_subgroup_analysis = np.mean(subgroup_analysis[name][m])
+                    subgroup_analysis[name][m] = mean_subgroup_analysis
+                    if np.isnan(mean_subgroup_analysis):
+                        continue
                     if self.wandb:
-                        self.wandb.log({'test_' + name + '_' + m: subgroup_analysis[name][m]})
+                        self.wandb.log({'test_' + name + '_' + m: mean_subgroup_analysis})
 
-                    print_sys('test_' + name + '_' + m + ': ' + str(subgroup_analysis[name][m]))
+                    print_sys('test_' + name + '_' + m + ': ' + str(mean_subgroup_analysis))
 
             ## deeper analysis
             subgroup_analysis = {}
