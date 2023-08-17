@@ -12,7 +12,6 @@ import tarfile
 from sklearn.linear_model import TheilSenRegressor
 from dcor import distance_correlation
 from multiprocessing import Pool
-from functools import partial
 
 def parse_single_pert(i):
     a = i.split('+')[0]
@@ -50,7 +49,8 @@ def np_pearson_cor(x, y):
 
 
 def dataverse_download(url, save_path):
-    """dataverse download helper with progress bar
+    """
+    Dataverse download helper with progress bar
 
     Args:
         url (str): the url of the dataset
@@ -73,6 +73,14 @@ def dataverse_download(url, save_path):
 
         
 def zip_data_download_wrapper(url, save_path, data_path):
+    """
+    Wrapper for zip file download
+
+    Args:
+        url (str): the url of the dataset
+        save_path (str): the path where the file is donwloaded
+        data_path (str): the path to save the extracted dataset
+    """
 
     if os.path.exists(save_path):
         print_sys('Found local copy...')
@@ -84,6 +92,15 @@ def zip_data_download_wrapper(url, save_path, data_path):
         print_sys("Done!")  
         
 def tar_data_download_wrapper(url, save_path, data_path):
+    """
+    Wrapper for tar file download
+
+    Args:
+        url (str): the url of the dataset
+        save_path (str): the path where the file is donwloaded
+        data_path (str): the path to save the extracted dataset
+
+    """
 
     if os.path.exists(save_path):
         print_sys('Found local copy...')
@@ -95,6 +112,17 @@ def tar_data_download_wrapper(url, save_path, data_path):
         print_sys("Done!")  
         
 def get_go_auto(gene_list, data_path, data_name):
+    """
+    Get gene ontology data
+
+    Args:
+        gene_list (list): list of gene names
+        data_path (str): the path to save the extracted dataset
+        data_name (str): the name of the dataset
+
+    Returns:
+        df_edge_list (pd.DataFrame): gene ontology edge list
+    """
     go_path = os.path.join(data_path, data_name, 'go.csv')
     
     if os.path.exists(go_path):
@@ -126,39 +154,25 @@ def get_go_auto(gene_list, data_path, data_name):
         df_edge_list.to_csv(go_path, index = False)        
         return df_edge_list
 
-def get_go(df_gene2go):
-    df_gene2go['Entry name'] = df_gene2go['Entry name'].apply(lambda x: x.split('_')[0])
-    df_gene2go = df_gene2go[df_gene2go['Gene ontology IDs'].notnull()]
-    df_gene2go = df_gene2go.rename(columns = {[i for i in df_gene2go.columns.values
-                                            if 'yourlist' in i][0]: 'gene_id'})
-    geneid2go = dict(df_gene2go[['gene_id', 'Gene ontology IDs']].values)
-
-    gene2go = {}
-    for i,j in geneid2go.items():
-        j = [k.strip() for k in j.split(';')]
-        for k in i.split(','):
-            gene2go[ensembl2genename[k]] = j
-
-    from tqdm import tqdm
-    edge_list = []
-    for g1 in tqdm(gene2go.keys()):
-        for g2 in gene2go.keys():
-            edge_list.append((g1, g2, len(np.intersect1d(gene2go[g1],
-                    gene2go[g2]))/len(np.union1d(gene2go[g1], gene2go[g2]))))
-
-    edge_list_filter = [i for i in edge_list if i[2] > 0]
-    further_filter = [i for i in edge_list if i[2] > 0.1]
-    df_edge_list = pd.DataFrame(further_filter).rename(columns = {0: 'gene1',
-                                                                  1: 'gene2',
-                                                                  2: 'score'})
-
-    df_edge_list = df_edge_list.rename(columns = {'gene1': 'source',
-                                                  'gene2': 'target',
-                                                  'score': 'importance'})
-    return df_edge_list
-
 class GeneSimNetwork():
+    """
+    GeneSimNetwork class
+
+    Args:
+        edge_list (pd.DataFrame): edge list of the network
+        gene_list (list): list of gene names
+        node_map (dict): dictionary mapping gene names to node indices
+
+    Attributes:
+        edge_index (torch.Tensor): edge index of the network
+        edge_weight (torch.Tensor): edge weight of the network
+        G (nx.DiGraph): networkx graph object
+    """
     def __init__(self, edge_list, gene_list, node_map):
+        """
+        Initialize GeneSimNetwork class
+        """
+
         self.edge_list = edge_list
         self.G = nx.from_pandas_edgelist(self.edge_list, source='source',
                         target='target', edge_attr=['importance'],
@@ -178,6 +192,9 @@ class GeneSimNetwork():
         self.edge_weight = torch.Tensor(importance)
 
 def get_GO_edge_list(args):
+    """
+    Get gene ontology edge list
+    """
     g1, gene2go = args
     edge_list = []
     for g2 in gene2go.keys():
@@ -247,6 +264,20 @@ def get_similarity_network(network_type, adata, threshold, k,
 def get_coexpression_network_from_train(adata, threshold, k, data_path,
                                         data_name, split, seed, train_gene_set_size,
                                         set2conditions):
+    """
+    Infer co-expression network from training data
+
+    Args:
+        adata (anndata.AnnData): anndata object
+        threshold (float): threshold for co-expression
+        k (int): number of edges to keep
+        data_path (str): path to data
+        data_name (str): name of dataset
+        split (str): split of dataset
+        seed (int): seed for random number generator
+        train_gene_set_size (int): size of training gene set
+        set2conditions (dict): dictionary of perturbations to conditions
+    """
     
     fname = os.path.join(os.path.join(data_path, data_name), split + '_'  +
                          str(seed) + '_' + str(train_gene_set_size) + '_' +
@@ -285,6 +316,14 @@ def get_coexpression_network_from_train(adata, threshold, k, data_path,
         return df_co_expression
     
 def filter_pert_in_go(condition, pert_names):
+    """
+    Filter perturbations in GO graph
+
+    Args:
+        condition (str): whether condition is 'ctrl' or not
+        pert_names (list): list of perturbations
+    """
+
     if condition == 'ctrl':
         return True
     else:
@@ -299,6 +338,20 @@ def filter_pert_in_go(condition, pert_names):
         
 def uncertainty_loss_fct(pred, logvar, y, perts, reg = 0.1, ctrl = None,
                          direction_lambda = 1e-3, dict_filter = None):
+    """
+    Uncertainty loss function
+
+    Args:
+        pred (torch.tensor): predicted values
+        logvar (torch.tensor): log variance
+        y (torch.tensor): true values
+        perts (list): list of perturbations
+        reg (float): regularization parameter
+        ctrl (str): control perturbation
+        direction_lambda (float): direction loss weight hyperparameter
+        dict_filter (dict): dictionary of perturbations to conditions
+
+    """
     gamma = 2                     
     perts = np.array(perts)
     losses = torch.tensor(0.0, requires_grad=True).to(pred.device)
@@ -333,6 +386,18 @@ def uncertainty_loss_fct(pred, logvar, y, perts, reg = 0.1, ctrl = None,
 
 
 def loss_fct(pred, y, perts, ctrl = None, direction_lambda = 1e-3, dict_filter = None):
+    """
+    Main MSE Loss function, includes direction loss
+
+    Args:
+        pred (torch.tensor): predicted values
+        y (torch.tensor): true values
+        perts (list): list of perturbations
+        ctrl (str): control perturbation
+        direction_lambda (float): direction loss weight hyperparameter
+        dict_filter (dict): dictionary of perturbations to conditions
+
+    """
     gamma = 2
     mse_p = torch.nn.MSELoss()
     perts = np.array(perts)
@@ -350,7 +415,6 @@ def loss_fct(pred, y, perts, ctrl = None, direction_lambda = 1e-3, dict_filter =
         else:
             pred_p = pred[pert_idx]
             y_p = y[pert_idx]
-        #losses += torch.sum((torch.mean(pred_p, 0) - y_p)**(2+gamma))/pred_p.shape[1]
         losses = losses + torch.sum((pred_p - y_p)**(2 + gamma))/pred_p.shape[0]/pred_p.shape[1]
                          
         ## direction loss
@@ -375,6 +439,15 @@ def print_sys(s):
     print(s, flush = True, file = sys.stderr)
     
 def create_cell_graph_for_prediction(X, pert_idx, pert_gene):
+    """
+    Create a perturbation specific cell graph for inference
+
+    Args:
+        X (np.array): gene expression matrix
+        pert_idx (list): list of perturbation indices
+        pert_gene (list): list of perturbations
+
+    """
 
     if pert_idx is None:
         pert_idx = [-1]
@@ -383,6 +456,17 @@ def create_cell_graph_for_prediction(X, pert_idx, pert_gene):
 
 def create_cell_graph_dataset_for_prediction(pert_gene, ctrl_adata, gene_names,
                                              device, num_samples = 300):
+    """
+    Create a perturbation specific cell graph dataset for inference
+
+    Args:
+        pert_gene (list): list of perturbations
+        ctrl_adata (anndata): control anndata
+        gene_names (list): list of gene names
+        device (torch.device): device to use
+        num_samples (int): number of samples to use for inference (default: 300)
+
+    """
 
     # Get the indices (and signs) of applied perturbation
     pert_idx = [np.where(p == np.array(gene_names))[0][0] for p in pert_gene]
@@ -397,6 +481,16 @@ def create_cell_graph_dataset_for_prediction(pert_gene, ctrl_adata, gene_names,
 ##
 
 def get_coeffs(singles_expr, first_expr, second_expr, double_expr):
+    """
+    Get coefficients for GI calculation
+
+    Args:
+        singles_expr (np.array): single perturbation expression
+        first_expr (np.array): first perturbation expression
+        second_expr (np.array): second perturbation expression
+        double_expr (np.array): double perturbation expression
+
+    """
     results = {}
     results['ts'] = TheilSenRegressor(fit_intercept=False,
                           max_subpopulation=1e5,
@@ -422,7 +516,14 @@ def get_coeffs(singles_expr, first_expr, second_expr, double_expr):
     return results
 
 def get_GI_params(preds, combo):
-    
+    """
+    Get GI parameters
+
+    Args:
+        preds (dict): dictionary of predictions
+        combo (list): list of perturbations
+
+    """
     singles_expr = np.array([preds[combo[0]], preds[combo[1]]]).T
     first_expr = np.array(preds[combo[0]]).T
     second_expr = np.array(preds[combo[1]]).T
@@ -431,6 +532,15 @@ def get_GI_params(preds, combo):
     return get_coeffs(singles_expr, first_expr, second_expr, double_expr)
 
 def get_GI_genes_idx(adata, GI_gene_file):
+    """
+    Optional: Reads a file containing a list of GI genes (usually those
+    with high mean expression)
+
+    Args:
+        adata (anndata): anndata object
+        GI_gene_file (str): file containing GI genes (generally corresponds
+        to genes with high mean expression)
+    """
     # Genes used for linear model fitting
     GI_genes = np.load(GI_gene_file, allow_pickle=True)
     GI_genes_idx = np.where([g in GI_genes for g in adata.var.gene_name.values])[0]
@@ -438,7 +548,9 @@ def get_GI_genes_idx(adata, GI_gene_file):
     return GI_genes_idx
 
 def get_mean_control(adata):
-    cols = adata.var.gene_name.values.astype('str')
+    """
+    Get mean control expression
+    """
     mean_ctrl_exp = adata[adata.obs['condition'] == 'ctrl'].to_df().mean()
     return mean_ctrl_exp
 
