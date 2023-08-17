@@ -1,12 +1,7 @@
 from copy import deepcopy
-import argparse
-from time import time
-import sys, os
+import os
 import pickle
-
-import scanpy as sc
 import numpy as np
-
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -14,7 +9,7 @@ from torch.optim.lr_scheduler import StepLR
 
 from .model import GEARS_Model
 from .inference import evaluate, compute_metrics, deeper_analysis, \
-                  non_dropout_analysis, compute_synergy_loss
+                  non_dropout_analysis
 from .utils import loss_fct, uncertainty_loss_fct, parse_any_pert, \
                   get_similarity_network, print_sys, GeneSimNetwork, \
                   create_cell_graph_dataset_for_prediction, get_mean_control, \
@@ -26,14 +21,37 @@ import warnings
 warnings.filterwarnings("ignore")
 
 class GEARS:
+    """
+    GEARS base model class
+    """
+
     def __init__(self, pert_data, 
                  device = 'cuda',
                  weight_bias_track = False, 
                  proj_name = 'GEARS', 
-                 exp_name = 'GEARS',
-                 pred_scalar = False,
-                 gi_predict = False):
-        
+                 exp_name = 'GEARS'):
+        """
+        Initialize GEARS model
+
+        Parameters
+        ----------
+        pert_data: PertData object
+            dataloader for perturbation data
+        device: str
+            Device to run the model on. Default: 'cuda'
+        weight_bias_track: bool
+            Whether to track performance on wandb. Default: False
+        proj_name: str
+            Project name for wandb. Default: 'GEARS'
+        exp_name: str
+            Experiment name for wandb. Default: 'GEARS'
+
+        Returns
+        -------
+        None
+
+        """
+
         self.weight_bias_track = weight_bias_track
         
         if self.weight_bias_track:
@@ -57,7 +75,6 @@ class GEARS:
         self.train_gene_set_size = pert_data.train_gene_set_size
         self.set2conditions = pert_data.set2conditions
         self.subgroup = pert_data.subgroup
-        self.gi_predict = gi_predict
         self.gene_list = pert_data.gene_names.values.tolist()
         self.pert_list = pert_data.pert_names.tolist()
         self.num_genes = len(self.gene_list)
@@ -70,12 +87,9 @@ class GEARS:
             np.mean(self.adata.X[self.adata.obs.condition == 'ctrl'],
                     axis=0)).reshape(-1, ).to(self.device)
         pert_full_id2pert = dict(self.adata.obs[['condition_name', 'condition']].values)
-        if gi_predict:
-            self.dict_filter = None
-        else:
-            self.dict_filter = {pert_full_id2pert[i]: j for i, j in
-                                self.adata.uns['non_zeros_gene_idx'].items() if
-                                i in pert_full_id2pert}
+        self.dict_filter = {pert_full_id2pert[i]: j for i, j in
+                            self.adata.uns['non_zeros_gene_idx'].items() if
+                            i in pert_full_id2pert}
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
         
         gene_dict = {g:i for i,g in enumerate(self.gene_list)}
@@ -83,6 +97,16 @@ class GEARS:
                           enumerate(self.pert_list) if pert in self.gene_list}
 
     def tunable_parameters(self):
+        """
+        Return the tunable parameters of the model
+
+        Returns
+        -------
+        dict
+            Tunable parameters of the model
+
+        """
+
         return {'hidden_size': 'hidden dimension, default 64',
                 'num_go_gnn_layers': 'number of GNN layers for GO graph, default 1',
                 'num_gene_gnn_layers': 'number of GNN layers for co-expression gene graph, default 1',
@@ -110,8 +134,47 @@ class GEARS:
                          G_coexpress = None,
                          G_coexpress_weight = None,
                          no_perturb = False, 
-                         cell_fitness_pred = False,
                         ):
+        """
+        Initialize the model
+
+        Parameters
+        ----------
+        hidden_size: int
+            hidden dimension, default 64
+        num_go_gnn_layers: int
+            number of GNN layers for GO graph, default 1
+        num_gene_gnn_layers: int
+            number of GNN layers for co-expression gene graph, default 1
+        decoder_hidden_size: int
+            hidden dimension for gene-specific decoder, default 16
+        num_similar_genes_go_graph: int
+            number of maximum similar K genes in the GO graph, default 20
+        num_similar_genes_co_express_graph: int
+            number of maximum similar K genes in the co expression graph, default 20
+        coexpress_threshold: float
+            pearson correlation threshold when constructing coexpression graph, default 0.4
+        uncertainty: bool
+            whether or not to turn on uncertainty mode, default False
+        uncertainty_reg: float
+            regularization term to balance uncertainty loss and prediction loss, default 1
+        direction_lambda: float
+            regularization term to balance direction loss and prediction loss, default 1
+        G_go: scipy.sparse.csr_matrix
+            GO graph, default None
+        G_go_weight: scipy.sparse.csr_matrix
+            GO graph edge weights, default None
+        G_coexpress: scipy.sparse.csr_matrix
+            co-expression graph, default None
+        G_coexpress_weight: scipy.sparse.csr_matrix
+            co-expression graph edge weights, default None
+        no_perturb: bool
+            predict no perturbation condition, default False
+
+        Returns
+        -------
+        None
+        """
         
         self.config = {'hidden_size': hidden_size,
                        'num_go_gnn_layers' : num_go_gnn_layers, 
@@ -130,8 +193,7 @@ class GEARS:
                        'device': self.device,
                        'num_genes': self.num_genes,
                        'num_perts': self.num_perts,
-                       'no_perturb': no_perturb,
-                       'cell_fitness_pred': cell_fitness_pred,
+                       'no_perturb': no_perturb
                       }
         
         if self.wandb:
@@ -175,6 +237,19 @@ class GEARS:
         self.best_model = deepcopy(self.model)
         
     def load_pretrained(self, path):
+        """
+        Load pretrained model
+
+        Parameters
+        ----------
+        path: str
+            path to the pretrained model
+
+        Returns
+        -------
+        None
+        """
+
         with open(os.path.join(path, 'config.pkl'), 'rb') as f:
             config = pickle.load(f)
         
@@ -197,6 +272,19 @@ class GEARS:
         self.best_model = self.model
     
     def save_model(self, path):
+        """
+        Save the model
+
+        Parameters
+        ----------
+        path: str
+            path to save the model
+
+        Returns
+        -------
+        None
+
+        """
         if not os.path.exists(path):
             os.mkdir(path)
         
@@ -209,6 +297,23 @@ class GEARS:
         torch.save(self.best_model.state_dict(), os.path.join(path, 'model.pt'))
     
     def predict(self, pert_list):
+        """
+        Predict the transcriptome given a list of genes/gene combinations being
+        perturbed
+
+        Parameters
+        ----------
+        pert_list: list
+            list of genes/gene combiantions to be perturbed
+
+        Returns
+        -------
+        results_pred: dict
+            dictionary of predicted transcriptome
+        results_logvar: dict
+            dictionary of uncertainty score
+
+        """
         ## given a list of single/combo genes, return the transcriptome
         ## if uncertainty mode is on, also return uncertainty score.
         
@@ -263,9 +368,24 @@ class GEARS:
             return results_pred
         
     def GI_predict(self, combo, GI_genes_file='./genes_with_hi_mean.npy'):
-        ## given a gene pair, return (1) transcriptome of A,B,A+B and (2) GI scores. 
+        """
+        Predict the GI scores following perturbation of a given gene combination
+
+        Parameters
+        ----------
+        combo: list
+            list of genes to be perturbed
+        GI_genes_file: str
+            path to the file containing genes with high mean expression
+
+        Returns
+        -------
+        GI scores for the given combinatorial perturbation based on GEARS
+        predictions
+
+        """
+
         ## if uncertainty mode is on, also return uncertainty score.
-        
         try:
             # If prediction is already saved, then skip inference
             pred = {}
@@ -291,8 +411,23 @@ class GEARS:
         return get_GI_params(pred, combo)
     
     def plot_perturbation(self, query, save_file = None):
+        """
+        Plot the perturbation graph
+
+        Parameters
+        ----------
+        query: str
+            condition to be queried
+        save_file: str
+            path to save the plot
+
+        Returns
+        -------
+        None
+
+        """
+
         import seaborn as sns
-        import numpy as np
         import matplotlib.pyplot as plt
         
         sns.set_theme(style="ticks", rc={"axes.facecolor": (0, 0, 0, 0)}, font_scale=1.5)
@@ -343,6 +478,23 @@ class GEARS:
               lr = 1e-3,
               weight_decay = 5e-4
              ):
+        """
+        Train the model
+
+        Parameters
+        ----------
+        epochs: int
+            number of epochs to train
+        lr: float
+            learning rate
+        weight_decay: float
+            weight decay
+
+        Returns
+        -------
+        None
+
+        """
         
         train_loader = self.dataloader['train_loader']
         val_loader = self.dataloader['val_loader']

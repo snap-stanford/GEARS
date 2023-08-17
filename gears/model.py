@@ -8,6 +8,13 @@ from torch_geometric.nn import SGConv
 class MLP(torch.nn.Module):
 
     def __init__(self, sizes, batch_norm=True, last_layer_act="linear"):
+        """
+        Multi-layer perceptron
+        :param sizes: list of sizes of the layers
+        :param batch_norm: whether to use batch normalization
+        :param last_layer_act: activation function of the last layer
+
+        """
         super(MLP, self).__init__()
         layers = []
         for s in range(len(sizes) - 1):
@@ -28,10 +35,15 @@ class MLP(torch.nn.Module):
 
 class GEARS_Model(torch.nn.Module):
     """
-    GEARS
+    GEARS model
+
     """
 
     def __init__(self, args):
+        """
+        :param args: arguments dictionary
+        """
+
         super(GEARS_Model, self).__init__()
         self.args = args       
         self.num_genes = args['num_genes']
@@ -42,7 +54,6 @@ class GEARS_Model(torch.nn.Module):
         self.indv_out_hidden_size = args['decoder_hidden_size']
         self.num_layers_gene_pos = args['num_gene_gnn_layers']
         self.no_perturb = args['no_perturb']
-        self.cell_fitness_pred = args['cell_fitness_pred']
         self.pert_emb_lambda = 0.2
         
         # perturbation positional embedding added only to the perturbed genes
@@ -106,10 +117,10 @@ class GEARS_Model(torch.nn.Module):
         if self.uncertainty:
             self.uncertainty_w = MLP([hidden_size, hidden_size*2, hidden_size, 1], last_layer_act='linear')
         
-        #if self.cell_fitness_pred:
-        self.cell_fitness_mlp = MLP([self.num_genes, hidden_size*2, hidden_size, 1], last_layer_act='linear')
-
     def forward(self, data):
+        """
+        Forward pass of the model
+        """
         x, pert_idx = data.x, data.pert_idx
         if self.no_perturb:
             out = x.reshape(-1,1)
@@ -200,9 +211,6 @@ class GEARS_Model(torch.nn.Module):
                 out_logvar = self.uncertainty_w(base_emb)
                 out_logvar = torch.split(torch.flatten(out_logvar), self.num_genes)
                 return torch.stack(out), torch.stack(out_logvar)
-            
-            if self.cell_fitness_pred:
-                return torch.stack(out), self.cell_fitness_mlp(torch.stack(out))
             
             return torch.stack(out)
         

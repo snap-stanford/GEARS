@@ -5,9 +5,7 @@ import pickle
 from torch_geometric.data import DataLoader
 import os
 import scanpy as sc
-import networkx as nx
 from tqdm import tqdm
-import pandas as pd
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -18,10 +16,58 @@ from .utils import print_sys, zip_data_download_wrapper, dataverse_download,\
                   filter_pert_in_go, get_genes_from_perts
 
 class PertData:
+    """
+    Class for loading and processing perturbation data
+
+    Attributes
+    ----------
+    data_path: str
+        Path to save/load data
+    gene_set_path: str
+        Path to gene set to use for perturbation graph
+    default_pert_graph: bool
+        Whether to use default perturbation graph or not
+    dataset_name: str
+        Name of dataset
+    dataset_path: str
+        Path to dataset
+    adata: AnnData
+        AnnData object containing dataset
+    dataset_processed: bool
+        Whether dataset has been processed or not
+    ctrl_adata: AnnData
+        AnnData object containing control samples
+    gene_names: list
+        List of gene names
+    node_map: dict
+        Dictionary mapping gene names to indices
+    split: str
+        Split type
+    seed: int
+        Seed for splitting
+    subgroup: str
+        Subgroup for splitting
+    train_gene_set_size: int
+        Number of genes to use for training
+
+    """
     
     def __init__(self, data_path, 
                  gene_set_path=None, 
                  default_pert_graph=True):
+        """
+        Parameters
+        ----------
+
+        data_path: str
+            Path to save/load data
+        gene_set_path: str
+            Path to gene set to use for perturbation graph
+        default_pert_graph: bool
+            Whether to use default perturbation graph or not
+
+        """
+
         
         # Dataset/Dataloader attributes
         self.data_path = data_path
@@ -87,6 +133,18 @@ class PertData:
         Load existing dataloader
         Use data_name for loading 'norman', 'adamson', 'dixit' datasets
         For other datasets use data_path
+
+        Parameters
+        ----------
+        data_name: str
+            Name of dataset
+        data_path: str
+            Path to dataset
+
+        Returns
+        -------
+        None
+
         """
         
         if data_name in ['norman', 'adamson', 'dixit']:
@@ -140,7 +198,7 @@ class PertData:
             
             
             print_sys("Creating pyg object for each cell in the data...")
-            self.dataset_processed = self.create_dataset_file()
+            self.create_dataset_file()
             print_sys("Saving new dataset pyg object at " + dataset_fname) 
             pickle.dump(self.dataset_processed, open(dataset_fname, "wb"))    
             print_sys("Done!")
@@ -148,6 +206,23 @@ class PertData:
     def new_data_process(self, dataset_name,
                          adata = None,
                          skip_calc_de = False):
+        """
+        Process new dataset
+
+        Parameters
+        ----------
+        dataset_name: str
+            Name of dataset
+        adata: AnnData object
+            AnnData object containing gene expression data
+        skip_calc_de: bool
+            If True, skip differential expression calculation
+
+        Returns
+        -------
+        None
+
+        """
         
         if 'condition' not in adata.obs.columns.values:
             raise ValueError("Please specify condition")
@@ -189,6 +264,36 @@ class PertData:
                       test_perts = None,
                       only_test_set_perts = False,
                       test_pert_genes = None):
+
+        """
+        Prepare splits for training and testing
+
+        Parameters
+        ----------
+        split: str
+            Type of split to use. Currently, we support 'simulation',
+            'simulation_single', 'combo_seen0', 'combo_seen1', 'combo_seen2',
+            'single', 'no_test', 'no_split'
+        seed: int
+            Random seed
+        train_gene_set_size: float
+            Fraction of genes to use for training
+        combo_seen2_train_frac: float
+            Fraction of combo seen2 perturbations to use for training
+        combo_single_split_test_set_fraction: float
+            Fraction of combo single perturbations to use for testing
+        test_perts: list
+            List of perturbations to use for testing
+        only_test_set_perts: bool
+            If True, only use test set perturbations for testing
+        test_pert_genes: list
+            List of genes to use for testing
+
+        Returns
+        -------
+        None
+
+        """
         available_splits = ['simulation', 'simulation_single', 'combo_seen0',
                             'combo_seen1', 'combo_seen2', 'single', 'no_test',
                             'no_split']
@@ -222,6 +327,7 @@ class PertData:
                 test_perts = test_perts.split('_')
                     
             if split in ['simulation', 'simulation_single']:
+                # simulation split
                 DS = DataSplitter(self.adata, split_type=split)
                 
                 adata, subgroup = DS.split_data(train_gene_set_size = train_gene_set_size, 
@@ -235,6 +341,7 @@ class PertData:
                 self.subgroup = subgroup
                 
             elif split[:5] == 'combo':
+                # combo perturbation
                 split_type = 'combo'
                 seen = int(split[-1])
 
@@ -246,18 +353,21 @@ class PertData:
                                       test_perts=test_perts,
                                       test_pert_genes=test_pert_genes,
                                       seed=seed)
-            
+
             elif split == 'single':
+                # single perturbation
                 DS = DataSplitter(self.adata, split_type=split)
                 adata = DS.split_data(test_size=combo_single_split_test_set_fraction,
                                       seed=seed)
-            
+
             elif split == 'no_test':
+                # no test set
                 DS = DataSplitter(self.adata, split_type=split)
                 adata = DS.split_data(test_size=combo_single_split_test_set_fraction,
                                       seed=seed)
             
-            elif split == 'no_split':          
+            elif split == 'no_split':
+                # no split
                 adata = self.adata
                 adata.obs['split'] = 'test'
             
@@ -276,6 +386,22 @@ class PertData:
         print_sys("Done!")
         
     def get_dataloader(self, batch_size, test_batch_size = None):
+        """
+        Get dataloaders for training and testing
+
+        Parameters
+        ----------
+        batch_size: int
+            Batch size for training
+        test_batch_size: int
+            Batch size for testing
+
+        Returns
+        -------
+        dict
+            Dictionary of dataloaders
+
+        """
         if test_batch_size is None:
             test_batch_size = batch_size
             
@@ -327,17 +453,22 @@ class PertData:
                 self.dataloader =  {'train_loader': train_loader,
                                     'val_loader': val_loader}
             print_sys("Done!")
-        #del self.dataset_processed # clean up some memory
-    
-        
-    def create_dataset_file(self):
-        dl = {}
-        for p in tqdm(self.adata.obs['condition'].unique()):
-            cell_graph_dataset = self.create_cell_graph_dataset(self.adata, p, num_samples=1)
-            dl[p] = cell_graph_dataset
-        return dl
-    
-    def get_pert_idx(self, pert_category, adata_):
+
+    def get_pert_idx(self, pert_category):
+        """
+        Get perturbation index for a given perturbation category
+
+        Parameters
+        ----------
+        pert_category: str
+            Perturbation category
+
+        Returns
+        -------
+        list
+            List of perturbation indices
+
+        """
         try:
             pert_idx = [np.where(p == self.pert_names)[0][0]
                     for p in pert_category.split('+')
@@ -348,21 +479,31 @@ class PertData:
             
         return pert_idx
 
-    # Set up feature matrix and output
-        
     def create_cell_graph(self, X, y, de_idx, pert, pert_idx=None):
+        """
+        Create a cell graph from a given cell
 
-        #pert_feats = np.expand_dims(pert_feats, 0)
-        #feature_mat = torch.Tensor(np.concatenate([X, pert_feats])).T
+        Parameters
+        ----------
+        X: np.ndarray
+            Gene expression matrix
+        y: np.ndarray
+            Label vector
+        de_idx: np.ndarray
+            DE gene indices
+        pert: str
+            Perturbation category
+        pert_idx: list
+            List of perturbation indices
+
+        Returns
+        -------
+        torch_geometric.data.Data
+            Cell graph to be used in dataloader
+
+        """
+
         feature_mat = torch.Tensor(X).T
-        
-        '''
-        pert_feats = np.zeros(len(self.pert_names))
-        if pert_idx is not None:
-            for p in pert_idx:
-                pert_feats[int(np.abs(p))] = 1
-        pert_feats = torch.Tensor(pert_feats).T
-        '''
         if pert_idx is None:
             pert_idx = [-1]
         return Data(x=feature_mat, pert_idx=pert_idx,
@@ -372,6 +513,22 @@ class PertData:
                                   num_samples=1):
         """
         Combine cell graphs to create a dataset of cell graphs
+
+        Parameters
+        ----------
+        split_adata: anndata.AnnData
+            Annotated data matrix
+        pert_category: str
+            Perturbation category
+        num_samples: int
+            Number of samples to create per perturbed cell (i.e. number of
+            control cells to map to each perturbed cell)
+
+        Returns
+        -------
+        list
+            List of cell graphs
+
         """
 
         num_de_genes = 20        
@@ -388,7 +545,7 @@ class PertData:
         # When considering a non-control perturbation
         if pert_category != 'ctrl':
             # Get the indices of applied perturbation
-            pert_idx = self.get_pert_idx(pert_category, adata_)
+            pert_idx = self.get_pert_idx(pert_category)
 
             # Store list of genes that are most differentially expressed for testing
             pert_de_category = adata_.obs['condition_name'][0]
@@ -420,3 +577,13 @@ class PertData:
                                 y.toarray(), de_idx, pert_category, pert_idx))
 
         return cell_graphs
+
+    def create_dataset_file(self):
+        """
+        Create dataset file for each perturbation condition
+        """
+        print_sys("Creating dataset file...")
+        self.dataset_processed = {}
+        for p in tqdm(self.adata.obs['condition'].unique()):
+            self.dataset_processed[p] = self.create_cell_graph_dataset(self.adata, p)
+        print_sys("Done!")

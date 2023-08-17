@@ -60,7 +60,7 @@ def evaluate(loader, model, uncertainty, device):
     return results
 
 
-def compute_metrics(results, gene_idx=None):
+def compute_metrics(results):
     """
     Given results from a model run and the ground truth, compute metrics
 
@@ -117,20 +117,6 @@ def compute_metrics(results, gene_idx=None):
         metrics[m + '_de'] = np.mean(metrics[m + '_de'])
     
     return metrics, metrics_pert
-
-
-def compute_synergy_loss(results, mean_control, high_umi_idx, subtype = 'POTENTIATION'):
-    pred_res = get_test_set_results_seen2(results, subtype)
-    all_perts = np.unique(results['pert_cat'])
-    linear_params = get_linear_params(pred_res, high_umi_idx,
-                                            mean_control,all_perts)
-    synergy_loss = np.sum([np.abs(linear_params[k]['pred']['mag']
-                               - linear_params[k]['truth']['mag']) for k in
-                                linear_params])
-    
-    mag = np.sum([np.abs(linear_params[k]['pred']['mag']) for k in
-                                linear_params])
-    return synergy_loss, mag
 
 
 def non_zero_analysis(adata, test_res):
@@ -701,7 +687,6 @@ def get_test_set_results_seen2(res, sel_GI_type):
         out[key] = res[key][pred_idx]
     return out
 
-## Synergy loss calculation functions
 def get_all_vectors(all_res, mean_control, double,
                     single1, single2, high_umi_idx):
     # Pred
@@ -731,155 +716,3 @@ def get_all_vectors(all_res, mean_control, double,
             'single_truth_1': delta_single_truth_1.values[high_umi_idx],
             'single_truth_2': delta_single_truth_2.values[high_umi_idx],
             'double_truth': delta_double_truth.values[high_umi_idx]}
-
-
-def get_coeffs_synergy(singles_expr, double_expr):
-    results = {}
-    results['ts'] = TheilSenRegressor(fit_intercept=False,
-                                      max_subpopulation=1e5,
-                                      max_iter=1000,
-                                      random_state=1000)
-    X = singles_expr
-    y = double_expr
-    try:
-        results['ts'].fit(X, y.ravel())
-    except:
-        print(X)
-        print(y)
-    results['c1'] = results['ts'].coef_[0]
-    results['c2'] = results['ts'].coef_[1]
-    results['mag'] = np.sqrt((results['c1'] ** 2 + results['c2'] ** 2))
-    return results
-
-
-def Fit(all_vectors, type_='pertnet'):
-    if type_ == 'pertnet':
-        singles_expr = np.array(
-            [all_vectors['single_pred_1'], all_vectors['single_pred_2']]).T
-        first_expr = np.array([all_vectors['single_pred_1']]).T
-        second_expr = np.array([all_vectors['single_pred_2']]).T
-        double_expr = np.array(all_vectors['double_pred']).T
-
-    elif type_ == 'truth':
-        singles_expr = np.array(
-            [all_vectors['single_truth_1'], all_vectors['single_truth_2']]).T
-        first_expr = np.array([all_vectors['single_truth_1']]).T
-        second_expr = np.array([all_vectors['single_truth_2']]).T
-        double_expr = np.array(all_vectors['double_truth']).T
-
-    return get_coeffs_synergy(singles_expr, double_expr)
-
-
-def get_linear_params(pred_res, high_umi_idx, mean_control, all_perts):
-    results = {}
-    for c in set(pred_res['pert_cat']):
-        if 'ctrl' in c:
-            continue
-        double = c
-        single1 = get_single_name(double.split('+')[0], all_perts)
-        single2 = get_single_name(double.split('+')[1], all_perts)
-        all_vectors = get_all_vectors(pred_res, mean_control, double,
-                                      single1, single2, high_umi_idx)
-
-        pertnet_results = Fit(all_vectors, type_='pertnet')
-        truth_results = Fit(all_vectors, type_='truth')
-
-        results[c] = {
-            'truth': truth_results,
-            'pred': pertnet_results}
-
-    return results
-
-
-# Read in model for each gene
-
-GIs = {
-    'NEOMORPHIC': ['CBL+TGFBR2',
-                  'KLF1+TGFBR2',
-                  'MAP2K6+SPI1',
-                  'SAMD1+TGFBR2',
-                  'TGFBR2+C19orf26',
-                  'TGFBR2+ETS2',
-                  'CBL+UBASH3A',
-                  'CEBPE+KLF1',
-                  'DUSP9+MAPK1',
-                  'FOSB+PTPN12',
-                  'PLK4+STIL',
-                  'PTPN12+OSR2',
-                  'ZC3HAV1+CEBPE'],
-    'ADDITIVE': ['BPGM+SAMD1',
-                'CEBPB+MAPK1',
-                'CEBPB+OSR2',
-                'DUSP9+PRTG',
-                'FOSB+OSR2',
-                'IRF1+SET',
-                'MAP2K3+ELMSAN1',
-                'MAP2K6+ELMSAN1',
-                'POU3F2+FOXL2',
-                'RHOXF2BB+SET',
-                'SAMD1+PTPN12',
-                'SAMD1+UBASH3B',
-                'SAMD1+ZBTB1',
-                'SGK1+TBX2',
-                'TBX3+TBX2',
-                'ZBTB10+SNAI1'],
-    'EPISTASIS': ['AHR+KLF1',
-                 'MAPK1+TGFBR2',
-                 'TGFBR2+IGDCC3',
-                 'TGFBR2+PRTG',
-                 'UBASH3B+OSR2',
-                 'DUSP9+ETS2',
-                 'KLF1+CEBPA',
-                 'MAP2K6+IKZF3',
-                 'ZC3HAV1+CEBPA'],
-    'REDUNDANT': ['CDKN1C+CDKN1A',
-                 'MAP2K3+MAP2K6',
-                 'CEBPB+CEBPA',
-                 'CEBPE+CEBPA',
-                 'CEBPE+SPI1',
-                 'ETS2+MAPK1',
-                 'FOSB+CEBPE',
-                 'FOXA3+FOXA1'],
-    'POTENTIATION': ['CNN1+UBASH3A',
-                    'ETS2+MAP7D1',
-                    'FEV+CBFA2T3',
-                    'FEV+ISL2',
-                    'FEV+MAP7D1',
-                    'PTPN12+UBASH3A'],
-    'SYNERGY_SIMILAR_PHENO':['CBL+CNN1',
-                            'CBL+PTPN12',
-                            'CBL+PTPN9',
-                            'CBL+UBASH3B',
-                            'FOXA3+FOXL2',
-                            'FOXA3+HOXB9',
-                            'FOXL2+HOXB9',
-                            'UBASH3B+CNN1',
-                            'UBASH3B+PTPN12',
-                            'UBASH3B+PTPN9',
-                            'UBASH3B+ZBTB25'],
-    'SYNERGY_DISSIMILAR_PHENO': ['AHR+FEV',
-                                'DUSP9+SNAI1',
-                                'FOXA1+FOXF1',
-                                'FOXA1+FOXL2',
-                                'FOXA1+HOXB9',
-                                'FOXF1+FOXL2',
-                                'FOXF1+HOXB9',
-                                'FOXL2+MEIS1',
-                                'IGDCC3+ZBTB25',
-                                'POU3F2+CBFA2T3',
-                                'PTPN12+ZBTB25',
-                                'SNAI1+DLX2',
-                                'SNAI1+UBASH3B'],
-    'SUPPRESSOR': ['CEBPB+PTPN12',
-                  'CEBPE+CNN1',
-                  'CEBPE+PTPN12',
-                  'CNN1+MAPK1',
-                  'ETS2+CNN1',
-                  'ETS2+IGDCC3',
-                  'ETS2+PRTG',
-                  'FOSB+UBASH3B',
-                  'IGDCC3+MAPK1',
-                  'LYL1+CEBPB',
-                  'MAPK1+PRTG',
-                  'PTPN12+SNAI1']
-}
