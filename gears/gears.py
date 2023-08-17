@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import StepLR
 
 from .model import GEARS_Model
 from .inference import evaluate, compute_metrics, deeper_analysis, \
-                  non_dropout_analysis, compute_synergy_loss
+                  non_dropout_analysis
 from .utils import loss_fct, uncertainty_loss_fct, parse_any_pert, \
                   get_similarity_network, print_sys, GeneSimNetwork, \
                   create_cell_graph_dataset_for_prediction, get_mean_control, \

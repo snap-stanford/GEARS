@@ -545,7 +545,7 @@ class PertData:
         # When considering a non-control perturbation
         if pert_category != 'ctrl':
             # Get the indices of applied perturbation
-            pert_idx = self.get_pert_idx(pert_category, adata_)
+            pert_idx = self.get_pert_idx(pert_category)
 
             # Store list of genes that are most differentially expressed for testing
             pert_de_category = adata_.obs['condition_name'][0]
