@@ -251,7 +251,7 @@ class PertData:
             os.mkdir(pyg_path)
         dataset_fname = os.path.join(pyg_path, 'cell_graphs.pkl')
         print_sys("Creating pyg object for each cell in the data...")
-        self.dataset_processed = self.create_dataset_file()
+        self.create_dataset_file()
         print_sys("Saving new dataset pyg object at " + dataset_fname) 
         pickle.dump(self.dataset_processed, open(dataset_fname, "wb"))    
         print_sys("Done!")
