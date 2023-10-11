@@ -363,8 +363,7 @@ class PertData:
             elif split == 'no_test':
                 # no test set
                 DS = DataSplitter(self.adata, split_type=split)
-                adata = DS.split_data(test_size=combo_single_split_test_set_fraction,
-                                      seed=seed)
+                adata = DS.split_data(seed=seed)
             
             elif split == 'no_split':
                 # no split

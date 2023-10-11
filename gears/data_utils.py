@@ -172,13 +172,8 @@ class DataSplitter():
                                                                   0.9,
                                                                   seed)
         elif self.split_type == 'no_test':
-            print('test_pert_genes',str(test_pert_genes))
-            print('test_perts',str(test_perts))
-            
             train, val = self.get_split_list(unique_perts,
-                                          test_pert_genes=test_pert_genes,
-                                          test_perts=test_perts,
-                                          test_size=test_size)      
+                                          test_size=val_size)      
         else:
             train, test = self.get_split_list(unique_perts,
                                           test_pert_genes=test_pert_genes,
@@ -322,6 +317,12 @@ class DataSplitter():
                 # Discard only those combos which contain test genes
                 hold_out = self.get_perts_from_genes(test_pert_genes, pert_list,
                                                      'combo')
+        
+        elif self.split_type == 'no_test':
+            if test_perts is None:
+                test_perts = np.random.choice(pert_list,
+                                    int(len(pert_list) * test_size))
+            
 
         elif self.split_type == 'combo':
             if self.seen == 0:
