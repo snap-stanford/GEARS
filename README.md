@@ -69,15 +69,14 @@ pert_data.load(data_path = './data/XXX')
 ### Cite Us
 
 ```
-@article {Roohani2022.07.12.499735,
-	author = {Roohani, Yusuf and Huang, Kexin and Leskovec, Jure},
-	title = {GEARS: Predicting transcriptional outcomes of novel multi-gene perturbations},
-	year = {2022},
-	doi = {10.1101/2022.07.12.499735},
-	publisher = {Cold Spring Harbor Laboratory},
-	journal = {bioRxiv}
+@article{roohani2023predicting,
+  title={Predicting transcriptional outcomes of novel multigene perturbations with gears},
+  author={Roohani, Yusuf and Huang, Kexin and Leskovec, Jure},
+  journal={Nature Biotechnology},
+  year={2023},
+  publisher={Nature Publishing Group US New York}
 }
 ```
-Preprint: [Link](https://www.biorxiv.org/content/10.1101/2022.07.12.499735v1)
+Paper: [Link](https://www.nature.com/articles/s41587-023-01905-6)
 
 Code for reproducing figures: [Link](https://github.com/yhr91/gears_misc)
