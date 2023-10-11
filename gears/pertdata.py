@@ -263,7 +263,8 @@ class PertData:
                       combo_single_split_test_set_fraction = 0.1,
                       test_perts = None,
                       only_test_set_perts = False,
-                      test_pert_genes = None):
+                      test_pert_genes = None,
+                      split_dict_path=None):
 
         """
         Prepare splits for training and testing
@@ -273,7 +274,7 @@ class PertData:
         split: str
             Type of split to use. Currently, we support 'simulation',
             'simulation_single', 'combo_seen0', 'combo_seen1', 'combo_seen2',
-            'single', 'no_test', 'no_split'
+            'single', 'no_test', 'no_split', 'custom'
         seed: int
             Random seed
         train_gene_set_size: float
@@ -288,6 +289,9 @@ class PertData:
             If True, only use test set perturbations for testing
         test_pert_genes: list
             List of genes to use for testing
+        split_dict_path: str
+            Path to dictionary used for custom split. Sample format:
+                {'train': [X, Y], 'val': [P, Q], 'test': [Z]}
 
         Returns
         -------
@@ -296,7 +300,7 @@ class PertData:
         """
         available_splits = ['simulation', 'simulation_single', 'combo_seen0',
                             'combo_seen1', 'combo_seen2', 'single', 'no_test',
-                            'no_split']
+                            'no_split', 'custom']
         if split not in available_splits:
             raise ValueError('currently, we only support ' + ','.join(available_splits))
         self.split = split
@@ -369,6 +373,17 @@ class PertData:
                 # no split
                 adata = self.adata
                 adata.obs['split'] = 'test'
+                
+            elif split == 'custom':
+                adata = self.adata
+                try:
+                    with open(split_dict_path, 'rb') as f:
+                        split_dict = pickle.load(f)
+                except:
+                    raise ValueError('Please set split_dict_path for custom split')
+                adata.obs['split'] = adata.obs['condition'].map(split_dict)
+                
+                
             
             set2conditions = dict(adata.obs.groupby('split').agg({'condition':
                                                         lambda x: x}).condition)
