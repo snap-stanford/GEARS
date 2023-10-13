@@ -13,7 +13,7 @@ sc.settings.verbosity = 0
 
 from .data_utils import get_DE_genes, get_dropout_non_zero_genes, DataSplitter
 from .utils import print_sys, zip_data_download_wrapper, dataverse_download,\
-                  filter_pert_in_go, get_genes_from_perts
+                  filter_pert_in_go, get_genes_from_perts, tar_data_download_wrapper
 
 class PertData:
     """
@@ -147,7 +147,9 @@ class PertData:
 
         """
         
-        if data_name in ['norman', 'adamson', 'dixit']:
+        if data_name in ['norman', 'adamson', 'dixit', 
+                         'replogle_k562_essential', 
+                         'replogle_rpe1_essential']:
             ## load from harvard dataverse
             if data_name == 'norman':
                 url = 'https://dataverse.harvard.edu/api/access/datafile/6154020'
@@ -155,8 +157,14 @@ class PertData:
                 url = 'https://dataverse.harvard.edu/api/access/datafile/6154417'
             elif data_name == 'dixit':
                 url = 'https://dataverse.harvard.edu/api/access/datafile/6154416'
+            elif data_name == 'replogle_k562_essential':
+                ## Note: This is not the complete dataset and has been filtered
+                url = 'https://dataverse.harvard.edu/api/access/datafile/7458695'
+            elif data_name == 'replogle_rpe1_essential':
+                ## Note: This is not the complete dataset and has been filtered
+                url = 'https://dataverse.harvard.edu/api/access/datafile/7458694'
             data_path = os.path.join(self.data_path, data_name)
-            zip_data_download_wrapper(url, data_path, self.data_path)            
+            zip_data_download_wrapper(url, data_path, self.data_path)
             self.dataset_name = data_path.split('/')[-1]
             self.dataset_path = data_path
             adata_path = os.path.join(data_path, 'perturb_processed.h5ad')
@@ -168,7 +176,8 @@ class PertData:
             self.dataset_name = data_path.split('/')[-1]
             self.dataset_path = data_path
         else:
-            raise ValueError("data attribute is either Norman/Adamson/Dixit "
+            raise ValueError("data attribute is either norman, adamson, dixit "
+                             "replogle_k562 or replogle_rpe1 "
                              "or a path to an h5ad file")
         
         self.set_pert_genes()
