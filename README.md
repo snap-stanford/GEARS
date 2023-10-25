@@ -10,8 +10,9 @@ This repository hosts the official implementation of GEARS, a method that can pr
 
 Install [PyG](https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html), and then do `pip install cell-gears`.
 
-### [New] Updates in v0.1.0
+### [New] Updates in v0.1.1
 
+- Fixed training breakpoint bug from v0.1.0
 - Preprocessed dataloader now available for Replogle 2022 RPE1 and K562 essential datasets
 - Added custom split, fixed no-test split
 
