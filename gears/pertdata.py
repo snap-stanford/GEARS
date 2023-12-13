@@ -315,8 +315,16 @@ class PertData:
         self.split = split
         self.seed = seed
         self.subgroup = None
-        self.train_gene_set_size = train_gene_set_size
         
+        if split == 'custom':
+            try:
+                with open(split_dict_path, 'rb') as f:
+                    self.set2conditions = pickle.load(f)
+            except:
+                    raise ValueError('Please set split_dict_path for custom split')
+            return
+            
+        self.train_gene_set_size = train_gene_set_size
         split_folder = os.path.join(self.dataset_path, 'splits')
         if not os.path.exists(split_folder):
             os.mkdir(split_folder)
@@ -328,6 +336,7 @@ class PertData:
             split_path = split_path[:-4] + '_' + test_perts + '.pkl'
         
         if os.path.exists(split_path):
+            print('here1')
             print_sys("Local copy of split is detected. Loading...")
             set2conditions = pickle.load(open(split_path, "rb"))
             if split == 'simulation':
@@ -382,18 +391,7 @@ class PertData:
                 # no split
                 adata = self.adata
                 adata.obs['split'] = 'test'
-                
-            elif split == 'custom':
-                adata = self.adata
-                try:
-                    with open(split_dict_path, 'rb') as f:
-                        split_dict = pickle.load(f)
-                except:
-                    raise ValueError('Please set split_dict_path for custom split')
-                adata.obs['split'] = adata.obs['condition'].map(split_dict)
-                
-                
-            
+                 
             set2conditions = dict(adata.obs.groupby('split').agg({'condition':
                                                         lambda x: x}).condition)
             set2conditions = {i: j.unique().tolist() for i,j in set2conditions.items()} 
