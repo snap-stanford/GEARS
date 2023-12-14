@@ -54,6 +54,7 @@ class GEARS_Model(torch.nn.Module):
         self.indv_out_hidden_size = args['decoder_hidden_size']
         self.num_layers_gene_pos = args['num_gene_gnn_layers']
         self.no_perturb = args['no_perturb']
+        self.baseline = args['baseline']
         self.pert_emb_lambda = 0.2
         
         # perturbation positional embedding added only to the perturbed genes
@@ -122,13 +123,17 @@ class GEARS_Model(torch.nn.Module):
         Forward pass of the model
         """
         x, pert_idx = data.x, data.pert_idx
+        num_graphs = len(data.batch.unique())
         if self.no_perturb:
             out = x.reshape(-1,1)
             out = torch.split(torch.flatten(out), self.num_genes)           
             return torch.stack(out)
+        elif self.baseline:
+            out = self.baseline_seen.repeat(num_graphs).reshape(
+                    num_graphs * self.num_genes, -1).to(x.device)
+            out = torch.split(torch.flatten(out), self.num_genes)
+            return torch.stack(out)
         else:
-            num_graphs = len(data.batch.unique())
-
             ## get base gene embeddings
             emb = self.gene_emb(torch.LongTensor(list(range(self.num_genes))).repeat(num_graphs, ).to(self.args['device']))        
             emb = self.bn_emb(emb)
@@ -202,8 +207,13 @@ class GEARS_Model(torch.nn.Module):
 
             cross_gene_out = cross_gene_out * self.indv_w2
             cross_gene_out = torch.sum(cross_gene_out, axis=2)
-            out = cross_gene_out + self.indv_b2        
-            out = out.reshape(num_graphs * self.num_genes, -1) + x.reshape(-1,1)
+            out = cross_gene_out + self.indv_b2
+            out = out.reshape(num_graphs * self.num_genes, -1)
+            if self.add_median:
+                 out += self.delta_median_seen.repeat(num_graphs).reshape(
+                    num_graphs * self.num_genes, -1).to(x.device)
+
+            out += x.reshape(-1,1)
             out = torch.split(torch.flatten(out), self.num_genes)
 
             ## uncertainty head

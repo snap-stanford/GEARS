@@ -133,7 +133,8 @@ class GEARS:
                          G_go_weight = None,
                          G_coexpress = None,
                          G_coexpress_weight = None,
-                         no_perturb = False, 
+                         no_perturb = False,
+                         baseline = None
                         ):
         """
         Initialize the model
@@ -193,7 +194,8 @@ class GEARS:
                        'device': self.device,
                        'num_genes': self.num_genes,
                        'num_perts': self.num_perts,
-                       'no_perturb': no_perturb
+                       'no_perturb': no_perturb,
+                       'baseline':baseline
                       }
         
         if self.wandb:
@@ -234,6 +236,29 @@ class GEARS:
             self.config['G_go_weight'] = sim_network.edge_weight
             
         self.model = GEARS_Model(self.config).to(self.device)
+        if self.config['baseline'] is not None:
+            df = self.adata.to_df()
+            df['condition'] = self.adata.obs['condition']
+            mean_df = df.groupby('condition').mean()
+
+            # Set up seen delta df and overall bseline delta
+            seen_perts = self.set2conditions['train'] + self.set2conditions['val']
+            seen_perts = [p for p in seen_perts if p != 'ctrl']
+            ctrl_mean = mean_df.loc['ctrl'].values
+            seen = mean_df.loc[seen_perts]
+            delta_seen = seen - ctrl_mean
+
+            if self.config['baseline'] is 'mean':
+                self.baseline_seen = seen.mean(0).values
+                self.delta_baseline_seen = delta_seen.mean(0).values
+
+            elif self.config['baseline'] is 'median':
+                self.baseline_seen = seen.median(0).values
+                self.delta_baseline_seen = delta_seen.median(0).values
+
+            self.model.baseline_seen = torch.Tensor(self.baseline_seen)
+            self.model.delta_baseline_seen = torch.Tensor(
+                self.delta_baseline_seen)
         self.best_model = deepcopy(self.model)
         
     def load_pretrained(self, path):
