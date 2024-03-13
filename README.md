@@ -16,6 +16,13 @@ Install [PyG](https://pytorch-geometric.readthedocs.io/en/latest/notes/installat
 - Preprocessed dataloader now available for Replogle 2022 RPE1 and K562 essential datasets
 - Added custom split, fixed no-test split
 
+### A note on usage:
+
+- GEARS is currently not designed to handle training across multiple cell types or cross-cell type transfer of predictions
+- GEARS has not been tested for training with bulk sequencing data.
+- When trained on single-gene perturbation data alone, GEARS cannot reliably predict outcomes for combinatorial perturbations. The model must be trained on some combinatorial perturbation data to make such predictions.
+- GEARS has been tested using datasets that contain multiple perturbation types, and multiple cells within each perturbation type. Datasets with too few cells per perturbation or too few perturbations may not work well with our model.
+
 ### Core API Interface
 
 Using the API, you can (1) reproduce the results in our paper and (2) train GEARS on your perturbation dataset using a few lines of code.
