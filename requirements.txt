@@ -3,6 +3,7 @@ pandas
 tqdm
 scikit-learn
 torch
+torch_geometric
 scanpy
 networkx
 dcor
