@@ -81,7 +81,12 @@ def get_dropout_non_zero_genes(adata):
     for i, j in conditions2index.items():
         condition2mean_expression[i] = np.mean(adata.X[j], axis = 0)
     pert_list = np.array(list(condition2mean_expression.keys()))
-    mean_expression = np.array(list(condition2mean_expression.values())).reshape(len(adata.obs.condition.unique()), adata.X.toarray().shape[1])
+    # to handle the non-sparse data input
+    try :
+        adata.X = adata.X.toarray()
+        mean_expression = np.array(list(condition2mean_expression.values())).reshape(len(adata.obs.condition.unique()), adata.X.shape[1])
+    except:
+        mean_expression = np.array(list(condition2mean_expression.values())).reshape(len(adata.obs.condition.unique()), adata.X.shape[1])
     ctrl = mean_expression[np.where(pert_list == 'ctrl')[0]]
     
     ## in silico modeling and upperbounding
