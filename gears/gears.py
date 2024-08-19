@@ -133,7 +133,8 @@ class GEARS:
                          G_go_weight = None,
                          G_coexpress = None,
                          G_coexpress_weight = None,
-                         no_perturb = False, 
+                         no_perturb = False,
+                         **kwargs
                         ):
         """
         Initialize the model
