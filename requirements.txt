@@ -1,9 +1,10 @@
-numpy
-pandas
-tqdm
-scikit-learn
+numpy==1.26.4
+pandas==2.2.2
+tqdm==4.66.5
+scikit-learn==1.5.1
 torch
 torch_geometric
-scanpy
-networkx
+scanpy==1.10.2
+networkx==3.3
 dcor
+scipy==1.14.1
