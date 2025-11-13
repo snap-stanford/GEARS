@@ -53,12 +53,26 @@ def rank_genes_groups_by_cov(
     if return_dict:
         return gene_dict
 
-    
-def get_DE_genes(adata, skip_calc_de):
+
+def prepare_adata_for_gears(adata):
     adata.obs.loc[:, 'dose_val'] = adata.obs.condition.apply(lambda x: '1+1' if len(x.split('+')) == 2 else '1')
     adata.obs.loc[:, 'control'] = adata.obs.condition.apply(lambda x: 0 if len(x.split('+')) == 2 else 1)
     adata.obs.loc[:, 'condition_name'] =  adata.obs.apply(lambda x: '_'.join([x.cell_type, x.condition, x.dose_val]), axis = 1) 
+    condition_name_ct = adata.obs['condition_name'].value_counts()
+    singlets = condition_name_ct[condition_name_ct == 1].index # singlets in terms of condition_name
+    adata = adata[~adata.obs['condition_name'].isin(singlets)]
+    print(f'removed these singlet conditions {",".join(singlets)}')
+    single_cond_context = []
+    for c in adata.obs.cell_type.unique(): # filter out contexts that have no ctrl or knockout
+        adata_ = adata[adata.obs.cell_type == c]
+        if len(adata_ .obs['condition_name'].unique()) < 2 or 'ctrl' not in adata_.obs.condition.unique():
+            single_cond_context.append(c)
+    adata = adata[~adata.obs.cell_type.isin(single_cond_context)]
+    print(f'removed these no ctrl/ko pairing contexts {",".join(single_cond_context)}')
+    return adata.copy()
     
+def get_DE_genes(adata, skip_calc_de):
+    adata = prepare_adata_for_gears(adata)
     adata.obs = adata.obs.astype('category')
     if not skip_calc_de:
         rank_genes_groups_by_cov(adata, 

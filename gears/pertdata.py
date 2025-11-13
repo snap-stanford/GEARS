@@ -1,4 +1,4 @@
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Dataset
 import torch
 import numpy as np
 import pickle
@@ -6,7 +6,7 @@ from torch_geometric.data import DataLoader
 import os
 import scanpy as sc
 from tqdm import tqdm
-
+import scipy as sp
 import warnings
 warnings.filterwarnings("ignore")
 sc.settings.verbosity = 0
@@ -14,6 +14,7 @@ sc.settings.verbosity = 0
 from .data_utils import get_DE_genes, get_dropout_non_zero_genes, DataSplitter
 from .utils import print_sys, zip_data_download_wrapper, dataverse_download,\
                   filter_pert_in_go, get_genes_from_perts, tar_data_download_wrapper
+
 
 class PertData:
     """
@@ -54,7 +55,8 @@ class PertData:
     
     def __init__(self, data_path, 
                  gene_set_path=None, 
-                 default_pert_graph=True):
+                 default_pert_graph=True,
+                 low_mem = False):
         """
         Parameters
         ----------
@@ -80,7 +82,7 @@ class PertData:
         self.ctrl_adata = None
         self.gene_names = []
         self.node_map = {}
-
+        self.low_mem = low_mem
         # Split attributes
         self.split = None
         self.seed = None
@@ -128,7 +130,7 @@ class PertData:
         self.pert_names = np.unique(list(gene2go.keys()))
         self.node_map_pert = {x: it for it, x in enumerate(self.pert_names)}
             
-    def load(self, data_name = None, data_path = None):
+    def load(self, data_name = None, data_path = None, low_mem = None):
         """
         Load existing dataloader
         Use data_name for loading 'norman', 'adamson', 'dixit' datasets
@@ -191,30 +193,37 @@ class PertData:
         
         filter_go = self.adata.obs[self.adata.obs.condition.apply(
                               lambda x: filter_pert_in_go(x, self.pert_names))]
-        self.adata = self.adata[filter_go.index.values, :]
+        self.adata = self.adata[filter_go.index.values, :].copy()
+        self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
+        self.ctrl_adata_index = np.where(self.adata.obs['condition'] == 'ctrl')[0]
+
         pyg_path = os.path.join(data_path, 'data_pyg')
         if not os.path.exists(pyg_path):
             os.mkdir(pyg_path)
         dataset_fname = os.path.join(pyg_path, 'cell_graphs.pkl')
-                
-        if os.path.isfile(dataset_fname):
+        self.low_mem = self.low_mem if low_mem is None else low_mem
+        if self.low_mem == True:
+            self.create_dataset_file(low_mem = True)
+        elif os.path.isfile(dataset_fname):
             print_sys("Local copy of pyg dataset is detected. Loading...")
             self.dataset_processed = pickle.load(open(dataset_fname, "rb"))        
             print_sys("Done!")
         else:
             self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
+            self.ctrl_adata_index = np.where(self.adata.obs['condition'] == 'ctrl')[0]
             self.gene_names = self.adata.var.gene_name
             
             
             print_sys("Creating pyg object for each cell in the data...")
-            self.create_dataset_file()
+            self.create_dataset_file(low_mem = low_mem)
             print_sys("Saving new dataset pyg object at " + dataset_fname) 
             pickle.dump(self.dataset_processed, open(dataset_fname, "wb"))    
             print_sys("Done!")
             
     def new_data_process(self, dataset_name,
                          adata = None,
-                         skip_calc_de = False):
+                         skip_calc_de = False,
+                         low_mem = None):
         """
         Process new dataset
 
@@ -239,7 +248,7 @@ class PertData:
             raise ValueError("Please specify gene name")
         if 'cell_type' not in adata.obs.columns.values:
             raise ValueError("Please specify cell type")
-        
+        self.low_mem =  self.low_mem if low_mem is None else low_mem
         dataset_name = dataset_name.lower()
         self.dataset_name = dataset_name
         save_data_folder = os.path.join(self.data_path, dataset_name)
@@ -250,20 +259,36 @@ class PertData:
         self.adata = get_DE_genes(adata, skip_calc_de)
         if not skip_calc_de:
             self.adata = get_dropout_non_zero_genes(self.adata)
+        self.set_pert_genes()
+        print_sys('These perturbations are not in the GO graph and their '
+                  'perturbation can thus not be predicted')
+        not_in_go_pert = np.array(self.adata.obs[
+                                  self.adata.obs.condition.apply(
+                                  lambda x:not filter_pert_in_go(x,
+                                        self.pert_names))].condition.unique())
+        print_sys(not_in_go_pert)
+        
+        filter_go = self.adata.obs[self.adata.obs.condition.apply(
+                              lambda x: filter_pert_in_go(x, self.pert_names))]
+        self.adata = self.adata[filter_go.index.values, :].copy()
         self.adata.write_h5ad(os.path.join(save_data_folder, 'perturb_processed.h5ad'))
         
-        self.set_pert_genes()
+        
         self.ctrl_adata = self.adata[self.adata.obs['condition'] == 'ctrl']
+        self.ctrl_adata_index = np.where(self.adata.obs['condition'] == 'ctrl')[0]
         self.gene_names = self.adata.var.gene_name
-        pyg_path = os.path.join(save_data_folder, 'data_pyg')
-        if not os.path.exists(pyg_path):
-            os.mkdir(pyg_path)
-        dataset_fname = os.path.join(pyg_path, 'cell_graphs.pkl')
-        print_sys("Creating pyg object for each cell in the data...")
-        self.create_dataset_file()
-        print_sys("Saving new dataset pyg object at " + dataset_fname) 
-        pickle.dump(self.dataset_processed, open(dataset_fname, "wb"))    
-        print_sys("Done!")
+        if self.low_mem:
+            self.create_dataset_file(True)
+        else:
+            pyg_path = os.path.join(save_data_folder, 'data_pyg')
+            if not os.path.exists(pyg_path):
+                os.mkdir(pyg_path)
+            dataset_fname = os.path.join(pyg_path, 'cell_graphs.pkl')
+            print_sys("Creating pyg object for each cell in the data...")
+            self.create_dataset_file()
+            print_sys("Saving new dataset pyg object at " + dataset_fname) 
+            pickle.dump(self.dataset_processed, open(dataset_fname, "wb"))    
+            print_sys("Done!")
         
     def prepare_split(self, split = 'simulation', 
                       seed = 1, 
@@ -406,6 +431,14 @@ class PertData:
                 print_sys(i + ':' + str(len(j)))
         print_sys("Done!")
         
+
+    def low_mem_convert(self, data):
+        new_dataset = {}
+        for i in data:
+            new_dataset[i] = GearsDataset(self.adata, data[i])
+        return new_dataset
+
+
     def get_dataloader(self, batch_size, test_batch_size = None):
         """
         Get dataloaders for training and testing
@@ -428,7 +461,7 @@ class PertData:
             
         self.node_map = {x: it for it, x in enumerate(self.adata.var.gene_name)}
         self.gene_names = self.adata.var.gene_name
-       
+        
         # Create cell graphs
         cell_graphs = {}
         if self.split == 'no_split':
@@ -437,7 +470,7 @@ class PertData:
             for p in self.set2conditions[i]:
                 if p != 'ctrl':
                     cell_graphs[i].extend(self.dataset_processed[p])
-                
+            
             print_sys("Creating dataloaders....")
             # Set up dataloaders
             test_loader = DataLoader(cell_graphs['test'],
@@ -454,9 +487,9 @@ class PertData:
                 cell_graphs[i] = []
                 for p in self.set2conditions[i]:
                     cell_graphs[i].extend(self.dataset_processed[p])
-
             print_sys("Creating dataloaders....")
-            
+            if self.low_mem:
+                cell_graphs = self.low_mem_convert(cell_graphs)
             # Set up dataloaders
             train_loader = DataLoader(cell_graphs['train'],
                                 batch_size=batch_size, shuffle=True, drop_last = True)
@@ -464,7 +497,7 @@ class PertData:
                                 batch_size=batch_size, shuffle=True)
             
             if self.split !='no_test':
-                test_loader = DataLoader(cell_graphs['test'],
+                test_loader = DataLoader(cell_graphs['test'], 
                                 batch_size=batch_size, shuffle=False)
                 self.dataloader =  {'train_loader': train_loader,
                                     'val_loader': val_loader,
@@ -530,6 +563,113 @@ class PertData:
         return Data(x=feature_mat, pert_idx=pert_idx,
                     y=torch.Tensor(y), de_idx=de_idx, pert=pert)
 
+
+    def create_cell_graph_small(self, X, y, de_idx, pert, pert_idx=None):
+        """
+        Create a cell graph from a given cell
+
+        Parameters
+        ----------
+        X: np.ndarray
+            Gene expression indices in original self.adata
+        y: np.ndarray
+            Label vector indices in original self.adata
+        de_idx: np.ndarray
+            DE gene indices
+        pert: str
+            Perturbation category
+        pert_idx: list
+            List of perturbation indices
+
+        Returns
+        -------
+        torch_geometric.data.Data
+            Cell graph to be used in dataloader
+
+        """
+
+        feature_ind = int(X)
+        if pert_idx is None:
+            pert_idx = [-1]
+        return Data(x=feature_ind, pert_idx=pert_idx,
+                    y=int(y), de_idx=de_idx, pert=pert)
+
+
+    def create_cell_graph_dataset_small(self, split_adata, pert_category,
+                                  num_samples=1):
+        """
+        Combine cell graphs to create a dataset of cell graphs with smaller memory footprint by storing indices
+        requires the original split_adata to be self.adata 
+        Parameters
+        ----------
+        split_adata: anndata.AnnData
+            Annotated data matrix
+        pert_category: str
+            Perturbation category
+        num_samples: int
+            Number of samples to create per perturbed cell (i.e. number of
+            control cells to map to each perturbed cell)
+
+        Returns
+        -------
+        list
+            List of cell graphs
+
+        """
+
+        num_de_genes = 20     
+        split_adata = self.adata   
+        adata_ = split_adata[split_adata.obs['condition'] == pert_category]
+        adata_index = np.where(split_adata.obs['condition'] == pert_category)[0]
+        if 'rank_genes_groups_cov_all' in adata_.uns:
+            de_genes = adata_.uns['rank_genes_groups_cov_all']
+            de = True
+        else:
+            de = False
+            num_de_genes = 1
+        Xs_inds = []
+        ys_inds = []
+        # When considering a non-control perturbation
+        if pert_category != 'ctrl':
+            # Get the indices of applied perturbation
+            pert_idx = self.get_pert_idx(pert_category)
+
+            # Store list of genes that are most differentially expressed for testing
+            pert_de_category = adata_.obs['condition_name'][0]
+            if de:
+                de_idx = np.where(adata_.var_names.isin(
+                np.array(de_genes[pert_de_category][:num_de_genes])))[0]
+            else:
+                de_idx = [-1] * num_de_genes
+            for cell_z_ind in adata_index:
+                # Use samples from control as basal expression
+                sample_inds = np.random.randint(0,
+                                        len(self.ctrl_adata), num_samples)
+                #ctrl_samples = self.ctrl_adata[sample_inds, :]
+                ctrl_samples_index = self.ctrl_adata_index[sample_inds]
+                for c in ctrl_samples_index:
+                    #Xs.append(c)
+                    #ys.append(cell_z_ind)
+                    Xs_inds.append(c)
+                    ys_inds.append(cell_z_ind)
+
+        # When considering a control perturbation
+        else:
+            pert_idx = None
+            de_idx = [-1] * num_de_genes
+            for cell_z_inds in adata_index:
+                Xs_inds.append(cell_z_inds)
+                ys_inds.append(cell_z_inds)
+
+        # Create cell graphs
+        cell_graphs = []
+        for X, y in zip(Xs_inds, ys_inds):
+            cell_graphs.append(self.create_cell_graph_small(X,
+                                y, de_idx, pert_category, pert_idx))
+
+        return cell_graphs
+
+
     def create_cell_graph_dataset(self, split_adata, pert_category,
                                   num_samples=1):
         """
@@ -562,7 +702,6 @@ class PertData:
             num_de_genes = 1
         Xs = []
         ys = []
-
         # When considering a non-control perturbation
         if pert_category != 'ctrl':
             # Get the indices of applied perturbation
@@ -599,12 +738,42 @@ class PertData:
 
         return cell_graphs
 
-    def create_dataset_file(self):
+    def create_dataset_file(self, low_mem = False):
         """
         Create dataset file for each perturbation condition
         """
         print_sys("Creating dataset file...")
         self.dataset_processed = {}
         for p in tqdm(self.adata.obs['condition'].unique()):
-            self.dataset_processed[p] = self.create_cell_graph_dataset(self.adata, p)
+            if not low_mem:
+                self.dataset_processed[p] = self.create_cell_graph_dataset(self.adata, p)
+            else:
+                self.dataset_processed[p] = self.create_cell_graph_dataset_small(self.adata, p)
         print_sys("Done!")
+
+
+class GearsDataset(Dataset):
+    def __init__(self, adata, subset):
+        super().__init__()
+        self.adata = adata
+        self.subset = subset
+        self.issparse = sp.sparse.issparse(adata.X)
+
+    def len(self):
+        return len(self.subset)
+
+    def get(self, idx):
+        ind_x = self.subset[idx].x
+        ind_y = self.subset[idx].y
+        if self.issparse:
+            feature_mat = torch.Tensor(self.adata.X[ind_x].toarray()).T
+            y = torch.Tensor(self.adata.X[ind_y].toarray())
+        else:
+            feature_mat = torch.Tensor(self.adata.X[[ind_x]]).T
+            y = torch.Tensor(self.adata.X[[ind_y]])
+        pert_idx = self.subset[idx].pert_idx
+        de_idx = self.subset[idx].de_idx
+        pert = self.subset[idx].pert
+        data = Data(x=feature_mat, pert_idx=pert_idx,
+                    y=y, de_idx=de_idx, pert=pert)
+        return data
